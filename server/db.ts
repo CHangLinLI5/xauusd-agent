@@ -1,6 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import {
+  InsertUser,
+  users,
+  chatSessions,
+  chatMessages,
+  chartAnalyses,
+  tradingPlans,
+  systemConfig,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +97,162 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ========== Chat Sessions ==========
+
+export async function createChatSession(userId: number, title?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(chatSessions).values({
+    userId,
+    title: title ?? "新对话",
+  });
+  return { id: Number(result[0].insertId) };
+}
+
+export async function getUserChatSessions(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(chatSessions)
+    .where(eq(chatSessions.userId, userId))
+    .orderBy(desc(chatSessions.updatedAt));
+}
+
+export async function deleteChatSession(sessionId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(chatMessages).where(eq(chatMessages.sessionId, sessionId));
+  await db
+    .delete(chatSessions)
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)));
+}
+
+// ========== Chat Messages ==========
+
+export async function addChatMessage(sessionId: number, role: "system" | "user" | "assistant", content: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(chatMessages).values({ sessionId, role, content });
+}
+
+export async function getSessionMessages(sessionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(chatMessages)
+    .where(eq(chatMessages.sessionId, sessionId))
+    .orderBy(chatMessages.createdAt);
+}
+
+// ========== Chart Analyses ==========
+
+export async function createChartAnalysis(userId: number, imageUrl: string, imageKey: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(chartAnalyses).values({
+    userId,
+    imageUrl,
+    imageKey,
+    status: "pending",
+  });
+  return { id: Number(result[0].insertId) };
+}
+
+export async function updateChartAnalysis(
+  id: number,
+  data: {
+    analysisResult?: string;
+    timeframe?: string;
+    patterns?: string;
+    keyLevels?: string;
+    status?: "pending" | "analyzing" | "completed" | "failed";
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(chartAnalyses).set(data).where(eq(chartAnalyses.id, id));
+}
+
+export async function getUserChartAnalyses(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(chartAnalyses)
+    .where(eq(chartAnalyses.userId, userId))
+    .orderBy(desc(chartAnalyses.createdAt));
+}
+
+export async function getChartAnalysisById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(chartAnalyses).where(eq(chartAnalyses.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+// ========== Trading Plans ==========
+
+export async function createTradingPlan(userId: number, planDate: string, content: string, marketType?: string, bias?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(tradingPlans).values({
+    userId,
+    planDate,
+    content,
+    marketType,
+    bias,
+  });
+  return { id: Number(result[0].insertId) };
+}
+
+export async function getTodayPlan(userId: number, planDate: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(tradingPlans)
+    .where(and(eq(tradingPlans.userId, userId), eq(tradingPlans.planDate, planDate)))
+    .orderBy(desc(tradingPlans.createdAt))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserTradingPlans(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(tradingPlans)
+    .where(eq(tradingPlans.userId, userId))
+    .orderBy(desc(tradingPlans.createdAt));
+}
+
+// ========== System Config ==========
+
+export async function getConfig(key: string): Promise<string | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(systemConfig)
+    .where(eq(systemConfig.configKey, key))
+    .limit(1);
+  return result.length > 0 ? result[0].configValue : undefined;
+}
+
+export async function setConfig(key: string, value: string, description?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(systemConfig)
+    .values({ configKey: key, configValue: value, description })
+    .onDuplicateKeyUpdate({ set: { configValue: value, description } });
+}
+
+export async function getAllConfigs() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(systemConfig);
+}

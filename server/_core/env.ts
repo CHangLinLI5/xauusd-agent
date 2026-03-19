@@ -7,4 +7,7 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  customLlmApiUrl: process.env.CUSTOM_LLM_API_URL ?? "",
+  customLlmApiKey: process.env.CUSTOM_LLM_API_KEY ?? "",
+  customLlmModel: process.env.CUSTOM_LLM_MODEL ?? "gpt-5.4",
 };
