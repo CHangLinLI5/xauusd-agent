@@ -2,9 +2,9 @@ import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Streamdown } from "streamdown";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart3,
   Upload,
@@ -15,7 +15,19 @@ import {
   ChevronLeft,
   RefreshCw,
   Camera,
+  Scan,
+  Eye,
+  Target,
+  Layers,
+  Crosshair,
 } from "lucide-react";
+
+const FEATURES = [
+  { icon: Target, label: "支撑/阻力位", desc: "关键价格水平" },
+  { icon: Layers, label: "箱体/过道区", desc: "区间结构识别" },
+  { icon: Crosshair, label: "形态识别", desc: "2B/分型/孕线/WM" },
+  { icon: Eye, label: "优质报价", desc: "报价区判断" },
+];
 
 export default function ChartAnalysis() {
   const { isAuthenticated } = useAuth();
@@ -36,7 +48,6 @@ export default function ChartAnalysis() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Preview
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = (ev.target?.result as string).split(",")[1];
@@ -47,15 +58,13 @@ export default function ChartAnalysis() {
       setAnalysisResult(null);
 
       try {
-        const { id, imageUrl } = await uploadChart.mutateAsync({
+        const { id } = await uploadChart.mutateAsync({
           imageBase64: base64,
           mimeType: file.type,
         });
-
-        // Wait a bit then poll for result
         const result = await analyzeChart.mutateAsync({ id });
         setAnalysisResult(result.analysisResult);
-      } catch (err) {
+      } catch {
         setAnalysisResult("分析失败，请重试。");
       } finally {
         setAnalyzing(false);
@@ -66,16 +75,18 @@ export default function ChartAnalysis() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-        <BarChart3 className="w-12 h-12 text-primary mb-4" />
-        <h2 className="text-lg font-semibold mb-2">图表分析</h2>
-        <p className="text-sm text-muted-foreground text-center mb-4">
-          上传 MT4/TradingView/Sierra Chart 截图，AI 自动识别形态和关键位
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan/20 to-cyan/5 flex items-center justify-center mb-5">
+          <BarChart3 className="w-8 h-8 text-cyan" />
+        </div>
+        <h2 className="text-xl font-bold mb-2">图表分析</h2>
+        <p className="text-sm text-muted-foreground text-center mb-6 max-w-[280px] leading-relaxed">
+          上传 MT4/TradingView 截图，AI 自动识别形态、关键位和报价区
         </p>
         <a href={getLoginUrl()}>
-          <Button className="gap-2">
+          <Button className="gap-2 bg-gold/90 hover:bg-gold text-background font-semibold h-11 px-6 rounded-xl">
             <LogIn className="w-4 h-4" />
-            登录系统
+            登录开始分析
           </Button>
         </a>
       </div>
@@ -84,50 +95,60 @@ export default function ChartAnalysis() {
 
   if (showHistory) {
     return (
-      <div className="px-4 py-4 max-w-lg mx-auto space-y-4">
+      <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(false)}>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setShowHistory(false)}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <h1 className="text-lg font-semibold">分析历史</h1>
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-cyan" />
+            <h1 className="text-lg font-bold">分析历史</h1>
+          </div>
         </div>
-        <div className="space-y-3">
-          {history?.map((item) => (
-            <Card key={item.id} className="border-border/50">
-              <CardContent className="p-3">
-                <div className="flex gap-3">
-                  <div className="w-16 h-16 rounded-lg bg-secondary/50 overflow-hidden shrink-0">
-                    <img src={item.imageUrl} alt="Chart" className="w-full h-full object-cover" />
+        <div className="space-y-2.5">
+          {history?.map((item, i) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="glass-card rounded-xl p-3.5"
+            >
+              <div className="flex gap-3">
+                <div className="w-16 h-16 rounded-lg bg-surface-elevated overflow-hidden shrink-0">
+                  <img src={item.imageUrl} alt="Chart" className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                      item.status === "completed" ? "bg-green/10 text-green" :
+                      item.status === "analyzing" ? "bg-gold/10 text-gold" :
+                      item.status === "failed" ? "bg-red/10 text-red" :
+                      "bg-surface-elevated text-muted-foreground"
+                    }`}>
+                      {item.status === "completed" ? "已完成" :
+                       item.status === "analyzing" ? "分析中" :
+                       item.status === "failed" ? "失败" : "待分析"}
+                    </span>
+                    {item.timeframe && (
+                      <span className="text-[10px] text-muted-foreground font-mono">{item.timeframe}</span>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                        item.status === "completed" ? "bg-green/10 text-green" :
-                        item.status === "analyzing" ? "bg-gold/10 text-gold" :
-                        item.status === "failed" ? "bg-red/10 text-red" :
-                        "bg-secondary text-muted-foreground"
-                      }`}>
-                        {item.status === "completed" ? "已完成" :
-                         item.status === "analyzing" ? "分析中" :
-                         item.status === "failed" ? "失败" : "待分析"}
-                      </span>
-                      {item.timeframe && (
-                        <span className="text-[10px] text-muted-foreground">{item.timeframe}</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground line-clamp-2">
-                      {item.analysisResult?.slice(0, 100) ?? "等待分析..."}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1">
-                      {new Date(item.createdAt).toLocaleString("zh-CN")}
-                    </div>
+                  <div className="text-xs text-foreground/70 line-clamp-2">
+                    {item.analysisResult?.slice(0, 100) ?? "等待分析..."}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    {new Date(item.createdAt).toLocaleString("zh-CN")}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </motion.div>
           ))}
           {(!history || history.length === 0) && (
-            <div className="text-center py-8 text-muted-foreground text-sm">暂无分析记录</div>
+            <div className="text-center py-16">
+              <BarChart3 className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
+              <p className="text-sm text-muted-foreground">暂无分析记录</p>
+            </div>
           )}
         </div>
       </div>
@@ -135,17 +156,22 @@ export default function ChartAnalysis() {
   }
 
   return (
-    <div className="px-4 py-4 max-w-lg mx-auto space-y-4">
+    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-primary" />
-          <h1 className="text-lg font-semibold">图表分析</h1>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan/15 to-cyan/5 flex items-center justify-center">
+            <BarChart3 className="w-4 h-4 text-cyan" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold">图表分析</h1>
+            <p className="text-[10px] text-muted-foreground">AI Vision 图表识别</p>
+          </div>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="text-xs gap-1"
+          className="text-xs gap-1.5 text-muted-foreground hover:text-cyan"
           onClick={() => setShowHistory(true)}
         >
           <History className="w-3.5 h-3.5" />
@@ -164,110 +190,121 @@ export default function ChartAnalysis() {
       />
 
       {!selectedImage ? (
-        <Card className="border-dashed border-2 border-border/50 hover:border-primary/30 transition-colors">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-              <Upload className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-sm font-medium mb-1">上传图表截图</h3>
-            <p className="text-xs text-muted-foreground mb-4">
-              支持 MT4 / TradingView / Sierra Chart 截图
-            </p>
-            <div className="flex gap-2 justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.removeAttribute("capture");
-                    fileInputRef.current.click();
-                  }
-                }}
-              >
-                <Image className="w-4 h-4" />
-                选择图片
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.setAttribute("capture", "environment");
-                    fileInputRef.current.click();
-                  }
-                }}
-              >
-                <Camera className="w-4 h-4" />
-                拍照
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-2xl p-6 text-center border-dashed border-2 border-border/30 hover:border-cyan/20 transition-all"
+        >
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan/15 to-cyan/5 flex items-center justify-center mx-auto mb-4">
+            <Upload className="w-7 h-7 text-cyan" />
+          </div>
+          <h3 className="text-base font-bold mb-1.5">上传图表截图</h3>
+          <p className="text-xs text-muted-foreground mb-5 max-w-[260px] mx-auto leading-relaxed">
+            支持 MT4 / TradingView / Sierra Chart 截图，AI 将自动分析
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Button
+              variant="outline"
+              className="gap-2 h-10 px-5 rounded-xl border-border/30 hover:border-cyan/30 hover:bg-cyan/5 hover:text-cyan"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.removeAttribute("capture");
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <Image className="w-4 h-4" />
+              选择图片
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 h-10 px-5 rounded-xl border-border/30 hover:border-cyan/30 hover:bg-cyan/5 hover:text-cyan"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.setAttribute("capture", "environment");
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <Camera className="w-4 h-4" />
+              拍照
+            </Button>
+          </div>
+        </motion.div>
       ) : (
-        <>
-          {/* Preview */}
-          <Card className="border-border/50 overflow-hidden">
-            <div className="relative">
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-4"
+          >
+            {/* Preview */}
+            <div className="glass-card rounded-2xl overflow-hidden relative">
               <img src={selectedImage} alt="Chart" className="w-full" />
               {analyzing && (
-                <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <span className="text-sm text-primary">AI 正在分析图表...</span>
+                <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="relative">
+                      <Scan className="w-10 h-10 text-cyan animate-pulse" />
+                      <div className="absolute inset-0 w-10 h-10 border-2 border-cyan/30 rounded-lg animate-ping" />
+                    </div>
+                    <span className="text-sm text-cyan font-medium">AI 正在分析图表...</span>
+                    <span className="text-[10px] text-muted-foreground">识别形态 · 标记关键位 · 判断报价区</span>
                   </div>
                 </div>
               )}
             </div>
-          </Card>
 
-          {/* Analysis Result */}
-          {analysisResult && (
-            <Card className="border-border/50">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <BarChart3 className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium">分析结果</span>
+            {/* Analysis Result */}
+            {analysisResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-card rounded-2xl p-4"
+              >
+                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
+                  <Scan className="w-4 h-4 text-cyan" />
+                  <span className="text-sm font-semibold">分析结果</span>
                 </div>
-                <div className="prose prose-invert prose-sm max-w-none">
+                <div className="prose prose-invert prose-sm max-w-none text-[13px] leading-relaxed [&_h1]:text-cyan [&_h2]:text-cyan [&_h3]:text-cyan/90 [&_strong]:text-gold/90 [&_code]:text-cyan [&_code]:bg-surface/50 [&_code]:px-1 [&_code]:rounded [&_li]:text-foreground/80 [&_p]:text-foreground/80">
                   <Streamdown>{analysisResult}</Streamdown>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </motion.div>
+            )}
 
-          {/* Actions */}
-          <div className="flex gap-2">
+            {/* Actions */}
             <Button
               variant="outline"
-              className="flex-1 gap-1"
+              className="w-full gap-2 h-11 rounded-xl border-border/30 hover:border-cyan/30 hover:bg-cyan/5 hover:text-cyan transition-all"
               onClick={() => {
                 setSelectedImage(null);
                 setAnalysisResult(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
               }}
             >
               <RefreshCw className="w-4 h-4" />
               重新上传
             </Button>
-          </div>
-        </>
+          </motion.div>
+        </AnimatePresence>
       )}
 
-      {/* Tips */}
-      <Card className="border-border/50 bg-secondary/30">
-        <CardContent className="p-3">
-          <div className="text-xs text-muted-foreground space-y-1">
-            <div className="font-medium text-foreground mb-1">AI 将自动识别：</div>
-            <div>· 图表周期（M1-W1）</div>
-            <div>· 支撑/阻力位、箱体区间</div>
-            <div>· 2B、顶底分型、上P/下P/P+、孕线</div>
-            <div>· W底/M顶、趋势中的W和M</div>
-            <div>· 顶底转换位、过道区</div>
-            <div>· 优质报价区判断</div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Feature Grid */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {FEATURES.map((feat, i) => (
+          <motion.div
+            key={feat.label}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 + i * 0.05 }}
+            className="glass-card rounded-xl p-3"
+          >
+            <feat.icon className="w-4 h-4 text-cyan/60 mb-2" />
+            <div className="text-[12px] font-semibold">{feat.label}</div>
+            <div className="text-[10px] text-muted-foreground">{feat.desc}</div>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 }

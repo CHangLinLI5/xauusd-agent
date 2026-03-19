@@ -29,6 +29,7 @@ import {
   DAILY_BIAS_PROMPT,
 } from "./prompts";
 import { getMockNews, getMockEconomicCalendar, getMockQuote, getMockDailyBias } from "./mockData";
+import { getRealQuote, getRealDailyBias } from "./marketData";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import type { Message } from "./_core/llm";
@@ -148,7 +149,12 @@ export const appRouter = router({
 
     generate: protectedProcedure.mutation(async ({ ctx }) => {
       const today = new Date().toISOString().split("T")[0]!;
-      const quote = getMockQuote();
+      let quote;
+      try {
+        quote = await getRealQuote();
+      } catch {
+        quote = getMockQuote();
+      }
       const events = getMockEconomicCalendar();
       const eventsSummary = events
         .map((e) => `${e.time.split("T")[1]?.slice(0, 5)} - ${e.name} (${e.importance})`)
@@ -167,15 +173,34 @@ export const appRouter = router({
     }),
   }),
 
-  // ========== Market Data (Mock) ==========
+  // ========== Market Data ==========
   market: router({
-    quote: publicProcedure.query(() => getMockQuote()),
+    quote: publicProcedure.query(async () => {
+      try {
+        return await getRealQuote();
+      } catch (error) {
+        console.error("[Market] Real quote failed, using mock:", error);
+        return getMockQuote();
+      }
+    }),
     news: publicProcedure.query(() => getMockNews()),
     calendar: publicProcedure.query(() => getMockEconomicCalendar()),
-    dailyBias: publicProcedure.query(() => getMockDailyBias()),
+    dailyBias: publicProcedure.query(async () => {
+      try {
+        return await getRealDailyBias();
+      } catch (error) {
+        console.error("[Market] Real bias failed, using mock:", error);
+        return getMockDailyBias();
+      }
+    }),
 
     generateBias: protectedProcedure.mutation(async () => {
-      const quote = getMockQuote();
+      let quote;
+      try {
+        quote = await getRealQuote();
+      } catch {
+        quote = getMockQuote();
+      }
       const events = getMockEconomicCalendar();
       const messages: Message[] = [
         { role: "system", content: DAILY_BIAS_PROMPT },
