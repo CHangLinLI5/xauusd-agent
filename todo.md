@@ -109,3 +109,12 @@
 - [x] 优化后端API缓存策略（quote 30s, daily 15min, 后台预热25s间隔）
 - [x] 优化前端轮询和数据加载（quote 15s, bias 30s, 全局staleTime 10s）
 - [x] 减少不必要的API调用（后台缓存预热+refetchOnMount:false）
+
+## WebSocket实时推送
+- [x] 后端安装socket.io并创建WebSocket服务器
+- [x] 后台缓存预热时通过WebSocket推送价格更新
+- [x] 推送quote、dailyBias、keyLevels数据
+- [x] 前端创建WebSocket hook接收实时数据
+- [x] 首页和顶部栏从轮询改为WebSocket驱动
+- [x] 保留轮询作为WebSocket断线的fallback
+- [x] 测试验证WebSocket连接和数据推送

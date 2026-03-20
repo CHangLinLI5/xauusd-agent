@@ -2,9 +2,9 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useMarketSocket } from "@/hooks/useMarketSocket";
 import {
   TrendingUp,
   TrendingDown,
@@ -14,7 +14,6 @@ import {
   ClipboardList,
   Newspaper,
   Shield,
-  Upload,
   Calendar,
   Activity,
   ArrowUpRight,
@@ -24,6 +23,8 @@ import {
   Eye,
   Target,
   Clock,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 const fadeInUp = {
@@ -34,25 +35,38 @@ const fadeInUp = {
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
-  const { data: quote, isLoading: quoteLoading } = trpc.market.quote.useQuery(undefined, {
-    refetchInterval: 15000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+
+  // WebSocket realtime data (primary)
+  const ws = useMarketSocket();
+
+  // tRPC fallback - only active when WebSocket is disconnected
+  const shouldFallback = !ws.isConnected && !ws.quote;
+  const { data: fallbackQuote } = trpc.market.quote.useQuery(undefined, {
+    enabled: shouldFallback,
+    refetchInterval: shouldFallback ? 15000 : false,
     staleTime: 10000,
   });
-  const { data: bias } = trpc.market.dailyBias.useQuery(undefined, {
-    refetchInterval: 30000,
-    refetchOnWindowFocus: true,
+  const { data: fallbackBias } = trpc.market.dailyBias.useQuery(undefined, {
+    enabled: shouldFallback,
+    refetchInterval: shouldFallback ? 30000 : false,
     staleTime: 20000,
   });
-  const { data: calendar } = trpc.market.calendar.useQuery(undefined, {
-    refetchInterval: 120000,
+  const { data: fallbackCalendar } = trpc.market.calendar.useQuery(undefined, {
+    enabled: shouldFallback,
+    refetchInterval: shouldFallback ? 120000 : false,
     staleTime: 60000,
   });
-  const { data: news } = trpc.market.news.useQuery(undefined, {
-    refetchInterval: 120000,
+  const { data: fallbackNews } = trpc.market.news.useQuery(undefined, {
+    enabled: shouldFallback,
+    refetchInterval: shouldFallback ? 120000 : false,
     staleTime: 60000,
   });
+
+  // Use WebSocket data if available, otherwise fallback to tRPC
+  const quote = ws.quote ?? fallbackQuote;
+  const bias = ws.bias ?? fallbackBias;
+  const calendar = ws.calendar ?? fallbackCalendar;
+  const news = ws.news ?? fallbackNews;
 
   const biasConfig = {
     bullish: { label: "偏多", icon: TrendingUp, color: "text-green", bgClass: "from-green/15 to-green/5", dotClass: "status-dot-green" },
@@ -73,6 +87,7 @@ export default function Home() {
 
   const currentPrice = quote?.price ?? 0;
   const priceUp = (quote?.change ?? 0) >= 0;
+  const quoteLoading = !quote;
 
   return (
     <div className="px-4 py-5 space-y-4 max-w-lg mx-auto">
@@ -85,10 +100,20 @@ export default function Home() {
 
         <div className="relative">
           <div className="flex items-center gap-2 mb-1">
-            <div className="status-dot status-dot-green" />
+            {/* WebSocket connection indicator */}
+            {ws.isConnected ? (
+              <div className="status-dot status-dot-green" />
+            ) : (
+              <div className="status-dot status-dot-gold animate-pulse" />
+            )}
             <span className="text-[11px] text-muted-foreground font-medium tracking-wider uppercase">
-              XAUUSD · 现货黄金 · 实时
+              XAUUSD · 现货黄金 · {ws.isConnected ? "实时" : "延迟"}
             </span>
+            {ws.isConnected ? (
+              <Wifi className="w-3 h-3 text-green/60" />
+            ) : (
+              <WifiOff className="w-3 h-3 text-gold/60" />
+            )}
           </div>
 
           <div className="flex items-end justify-between mt-3">
@@ -218,7 +243,6 @@ export default function Home() {
         <div className="px-3 pb-3.5">
           {bias?.keyLevels ? (
             <div className="space-y-1.5">
-              {/* Resistance levels */}
               {[
                 { label: "R2", value: bias.keyLevels.resistance2, type: "resistance" as const },
                 { label: "R1", value: bias.keyLevels.resistance1, type: "resistance" as const },
@@ -294,16 +318,16 @@ export default function Home() {
         </div>
         <div className="px-3 pb-3.5">
           <div className="space-y-1">
-            {calendar?.slice(0, 4).map((event, i) => (
+            {calendar?.slice(0, 4).map((event: any, i: number) => (
               <div
-                key={event.id}
+                key={event.id ?? i}
                 className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-surface/30 hover:bg-surface/50 transition-colors"
               >
                 <div className="flex items-center gap-2.5">
                   <div className={`w-1.5 h-1.5 rounded-full ${
                     event.importance === "high" ? "bg-red" : event.importance === "medium" ? "bg-gold" : "bg-muted-foreground"
                   }`} />
-                  <span className="text-[13px]">{event.name}</span>
+                  <span className="text-[13px]">{event.name ?? event.event}</span>
                   {event.importance === "high" && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-red/10 text-red font-medium">
                       高影响
@@ -399,7 +423,7 @@ export default function Home() {
         </div>
         <div className="px-3 pb-3.5">
           <div className="space-y-1">
-            {news?.slice(0, 3).map((item) => (
+            {news?.slice(0, 3).map((item: any) => (
               <div
                 key={item.id}
                 className="flex items-start gap-2.5 py-2.5 px-3 rounded-lg bg-surface/30 hover:bg-surface/50 transition-colors"

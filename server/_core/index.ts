@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startCacheWarming } from "../marketData";
+import { initWebSocket, startRealtimePush } from "../wsServer";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -58,10 +59,15 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
+  // Initialize WebSocket before listen
+  initWebSocket(server);
+
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     // Start background cache warming so API responses are always fast
     startCacheWarming();
+    // Start WebSocket realtime push
+    startRealtimePush();
   });
 }
 

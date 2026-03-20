@@ -7,11 +7,13 @@ import {
   BarChart3,
   Shield,
   Settings,
-  Activity,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useMarketSocket } from "@/hooks/useMarketSocket";
 import { trpc } from "@/lib/trpc";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 const navItems = [
   { path: "/", label: "首页", icon: Home },
@@ -24,12 +26,19 @@ const navItems = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user } = useAuth();
-  const { data: quote } = trpc.market.quote.useQuery(undefined, {
-    refetchInterval: 15000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+
+  // WebSocket realtime quote (primary)
+  const ws = useMarketSocket();
+
+  // tRPC fallback only when WebSocket is not connected and no data
+  const shouldFallback = !ws.isConnected && !ws.quote;
+  const { data: fallbackQuote } = trpc.market.quote.useQuery(undefined, {
+    enabled: shouldFallback,
+    refetchInterval: shouldFallback ? 15000 : false,
     staleTime: 10000,
   });
+
+  const quote = ws.quote ?? fallbackQuote;
 
   const isFullPage = location === "/admin";
 
@@ -57,7 +66,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             {quote && quote.price > 0 && (
               <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-surface/50 border border-border/30">
-                <div className="status-dot status-dot-green" />
+                {ws.isConnected ? (
+                  <Wifi className="w-3 h-3 text-green/70" />
+                ) : (
+                  <WifiOff className="w-3 h-3 text-gold/70" />
+                )}
                 <span className="text-xs font-mono font-medium">
                   {quote.price.toFixed(2)}
                 </span>
