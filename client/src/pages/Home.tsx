@@ -35,11 +35,24 @@ const fadeInUp = {
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const { data: quote, isLoading: quoteLoading } = trpc.market.quote.useQuery(undefined, {
-    refetchInterval: 30000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 3000,
   });
-  const { data: bias } = trpc.market.dailyBias.useQuery();
-  const { data: calendar } = trpc.market.calendar.useQuery();
-  const { data: news } = trpc.market.news.useQuery();
+  const { data: bias } = trpc.market.dailyBias.useQuery(undefined, {
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    staleTime: 10000,
+  });
+  const { data: calendar } = trpc.market.calendar.useQuery(undefined, {
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const { data: news } = trpc.market.news.useQuery(undefined, {
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
 
   const biasConfig = {
     bullish: { label: "偏多", icon: TrendingUp, color: "text-green", bgClass: "from-green/15 to-green/5", dotClass: "status-dot-green" },

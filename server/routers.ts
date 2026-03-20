@@ -30,6 +30,7 @@ import {
 } from "./prompts";
 import { getMockNews, getMockEconomicCalendar, getMockQuote, getMockDailyBias } from "./mockData";
 import { getRealQuote, getRealDailyBias } from "./marketData";
+import { buildMarketContext } from "./marketContext";
 import { storagePut } from "./storage";
 import { TRPCError } from "@trpc/server";
 import type { Message } from "./_core/llm";
@@ -76,8 +77,13 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await addChatMessage(input.sessionId, "user", input.content);
         const history = await getSessionMessages(input.sessionId);
+
+        // 获取实时行情数据注入到系统提示词中
+        const marketContext = await buildMarketContext();
+        const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext;
+
         const messages: Message[] = [
-          { role: "system", content: XAUUSD_CHAT_SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           ...history.map((m) => ({
             role: m.role as "system" | "user" | "assistant",
             content: m.content,
