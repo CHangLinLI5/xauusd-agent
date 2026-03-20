@@ -25,10 +25,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user } = useAuth();
   const { data: quote } = trpc.market.quote.useQuery(undefined, {
-    refetchInterval: 5000,
+    refetchInterval: 15000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    staleTime: 3000,
+    staleTime: 10000,
   });
 
   const isFullPage = location === "/admin";

@@ -85,11 +85,11 @@ const cache: {
 } = {};
 
 const CACHE_TTL = {
-  quote: 15 * 1000,        // 15 seconds for real-time quote
-  intraday: 60 * 1000,     // 1 minute for intraday data
-  daily: 5 * 60 * 1000,    // 5 minutes for daily data
-  weekly: 30 * 60 * 1000,  // 30 minutes for weekly data
-  monthly: 60 * 60 * 1000, // 1 hour for monthly data
+  quote: 30 * 1000,        // 30 seconds for real-time quote (Data API latency ~800ms)
+  intraday: 3 * 60 * 1000, // 3 minutes for intraday data
+  daily: 15 * 60 * 1000,   // 15 minutes for daily data
+  weekly: 60 * 60 * 1000,  // 1 hour for weekly data
+  monthly: 2 * 60 * 60 * 1000, // 2 hours for monthly data
 };
 
 function isCacheValid<T>(entry: CacheEntry<T> | undefined, ttl: number): entry is CacheEntry<T> {
@@ -404,4 +404,46 @@ function getDefaultKeyLevels(): KeyLevels {
     boxTop: 0,
     boxBottom: 0,
   };
+}
+
+// ========== Background Cache Warming ==========
+
+let warmingInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 后台预热缓存：服务器启动时预加载数据，并定期后台刷新
+ * 这样用户请求时总是命中缓存，不用等待外部API
+ */
+export function startCacheWarming() {
+  // Immediate warm-up
+  warmCache();
+  // Refresh every 25 seconds (just under quote TTL of 30s)
+  warmingInterval = setInterval(warmCache, 25 * 1000);
+  console.log("[MarketData] Background cache warming started (25s interval)");
+}
+
+async function warmCache() {
+  try {
+    await getRealQuote();
+  } catch (e) {
+    // silent - cache warming is best-effort
+  }
+  try {
+    // Only refresh daily/intraday if stale (they have longer TTLs)
+    if (!isCacheValid(cache.dailyData, CACHE_TTL.daily)) {
+      await getDailyData();
+    }
+    if (!isCacheValid(cache.intradayData, CACHE_TTL.intraday)) {
+      await getIntradayData();
+    }
+  } catch (e) {
+    // silent
+  }
+}
+
+export function stopCacheWarming() {
+  if (warmingInterval) {
+    clearInterval(warmingInterval);
+    warmingInterval = null;
+  }
 }

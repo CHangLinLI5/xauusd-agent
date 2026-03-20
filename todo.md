@@ -103,3 +103,9 @@
 ## Bug修复
 - [x] 首页价格自动轮询实时刷新（已从30秒优化到5秒）
 - [x] AI聊天助手能读取网站内实时价格和关键位数据（通过buildMarketContext注入）
+
+## 性能优化
+- [x] 诊断系统速度慢的瓶颈（API响应/前端加载/轮询频率）
+- [x] 优化后端API缓存策略（quote 30s, daily 15min, 后台预热25s间隔）
+- [x] 优化前端轮询和数据加载（quote 15s, bias 30s, 全局staleTime 10s）
+- [x] 减少不必要的API调用（后台缓存预热+refetchOnMount:false）

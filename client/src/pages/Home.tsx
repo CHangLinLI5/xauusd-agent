@@ -35,23 +35,23 @@ const fadeInUp = {
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const { data: quote, isLoading: quoteLoading } = trpc.market.quote.useQuery(undefined, {
-    refetchInterval: 5000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    staleTime: 3000,
-  });
-  const { data: bias } = trpc.market.dailyBias.useQuery(undefined, {
     refetchInterval: 15000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     staleTime: 10000,
   });
+  const { data: bias } = trpc.market.dailyBias.useQuery(undefined, {
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+    staleTime: 20000,
+  });
   const { data: calendar } = trpc.market.calendar.useQuery(undefined, {
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
   const { data: news } = trpc.market.news.useQuery(undefined, {
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   const biasConfig = {
