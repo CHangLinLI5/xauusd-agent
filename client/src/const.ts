@@ -5,9 +5,9 @@ export const getLoginUrl = () => {
   const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
   const appId = import.meta.env.VITE_APP_ID;
 
-  // Graceful fallback when env vars are not set (e.g. local dev without .env)
+  // When OAuth env vars are not set, use dev login endpoint
   if (!oauthPortalUrl || !appId) {
-    return "#login-unavailable";
+    return "/api/dev-login";
   }
 
   try {
@@ -22,6 +22,6 @@ export const getLoginUrl = () => {
 
     return url.toString();
   } catch {
-    return "#login-unavailable";
+    return "/api/dev-login";
   }
 };

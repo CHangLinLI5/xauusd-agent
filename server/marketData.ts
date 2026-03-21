@@ -4,6 +4,7 @@
  * 作为 XAUUSD 现货黄金的近似行情
  */
 import { callDataApi } from "./_core/dataApi";
+import { ENV } from "./_core/env";
 import type { MarketQuote } from "./mockData";
 
 // ========== Types ==========
@@ -123,6 +124,11 @@ async function fetchGoldChart(interval: string, range: string): Promise<YahooCha
 export async function getRealQuote(): Promise<MarketQuote> {
   if (isCacheValid(cache.quote, CACHE_TTL.quote)) {
     return cache.quote.data;
+  }
+
+  // If Forge API is not configured, throw so callers fall back to mock data
+  if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
+    throw new Error("Forge API not configured – use mock data");
   }
 
   const data = await fetchGoldChart("1d", "5d");
@@ -268,6 +274,11 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
  * 基于真实数据计算今日偏向
  */
 export async function getRealDailyBias(): Promise<DailyBiasData> {
+  // If Forge API is not configured, throw so callers fall back to mock data
+  if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
+    throw new Error("Forge API not configured \u2013 use mock data");
+  }
+
   const [quote, keyLevels, dailyData] = await Promise.all([
     getRealQuote(),
     calculateKeyLevels(),
