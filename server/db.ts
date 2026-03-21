@@ -16,6 +16,12 @@ import {
   memDeleteChatSession,
   memAddChatMessage,
   memGetSessionMessages,
+  memCreateTradingPlan,
+  memGetTodayPlan,
+  memGetUserTradingPlans,
+  memGetConfig,
+  memSetConfig,
+  memGetAllConfigs,
 } from "./memoryStore";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -208,11 +214,14 @@ export async function getChartAnalysisById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// ========== Trading Plans ==========
+// ========== Trading Plans (with memory fallback) ==========
 
 export async function createTradingPlan(userId: number, planDate: string, content: string, marketType?: string, bias?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    // Use in-memory fallback instead of throwing
+    return memCreateTradingPlan(userId, planDate, content, marketType, bias);
+  }
   const result = await db.insert(tradingPlans).values({
     userId,
     planDate,
@@ -225,7 +234,7 @@ export async function createTradingPlan(userId: number, planDate: string, conten
 
 export async function getTodayPlan(userId: number, planDate: string) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return memGetTodayPlan(userId, planDate);
   const result = await db
     .select()
     .from(tradingPlans)
@@ -237,7 +246,7 @@ export async function getTodayPlan(userId: number, planDate: string) {
 
 export async function getUserTradingPlans(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memGetUserTradingPlans(userId);
   return db
     .select()
     .from(tradingPlans)
@@ -245,11 +254,11 @@ export async function getUserTradingPlans(userId: number) {
     .orderBy(desc(tradingPlans.createdAt));
 }
 
-// ========== System Config ==========
+// ========== System Config (with memory fallback) ==========
 
 export async function getConfig(key: string): Promise<string | undefined> {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return memGetConfig(key);
   const result = await db
     .select()
     .from(systemConfig)
@@ -260,7 +269,10 @@ export async function getConfig(key: string): Promise<string | undefined> {
 
 export async function setConfig(key: string, value: string, description?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    memSetConfig(key, value, description);
+    return;
+  }
   await db
     .insert(systemConfig)
     .values({ configKey: key, configValue: value, description })
@@ -269,6 +281,6 @@ export async function setConfig(key: string, value: string, description?: string
 
 export async function getAllConfigs() {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memGetAllConfigs();
   return db.select().from(systemConfig);
 }

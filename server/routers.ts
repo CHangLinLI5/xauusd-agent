@@ -80,7 +80,19 @@ export const appRouter = router({
 
         // 获取实时行情数据注入到系统提示词中
         const marketContext = await buildMarketContext();
-        const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext;
+
+        // 构建增强的系统提示词：基础提示 + 实时数据 + 对话感知指令
+        const conversationCount = history.filter((m) => m.role === "user").length;
+        const now = new Date();
+        const timeContext = `\n\n---\n**当前时间**: ${now.toISOString()} (UTC)\n**本次对话轮次**: 第${conversationCount}轮\n**对话指引**: ${
+          conversationCount === 1
+            ? "这是用户的第一个问题，给出全面但简洁的分析。"
+            : conversationCount <= 3
+              ? "用户已经有了基础了解，聚焦于新的角度和变化，不要重复之前已经分析过的内容。如果市场数据没变，从不同维度（形态、时间、情绪、资金流）切入。"
+              : "深度对话阶段，用户对市场已有充分了解。只回答具体问题，极度简洁，像交易员之间的对话。避免任何重复内容。"
+        }`;
+
+        const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext + timeContext;
 
         const messages: Message[] = [
           { role: "system", content: systemPrompt },
@@ -89,7 +101,13 @@ export const appRouter = router({
             content: m.content,
           })),
         ];
-        const result = await invokeCustomLLM({ messages, maxTokens: 4096 });
+
+        // 使用适度的 temperature 提升回复多样性
+        const result = await invokeCustomLLM({
+          messages,
+          maxTokens: 4096,
+          temperature: 0.7,
+        });
         const assistantContent = extractContent(result);
         await addChatMessage(input.sessionId, "assistant", assistantContent);
         return { content: assistantContent };
@@ -137,6 +155,7 @@ export const appRouter = router({
           messages,
           imageUrl: analysis.imageUrl,
           maxTokens: 4096,
+          temperature: 0.5,
         });
         const content = extractContent(result);
         await updateChartAnalysis(input.id, { analysisResult: content, status: "completed" });
@@ -155,27 +174,88 @@ export const appRouter = router({
 
     generate: protectedProcedure.mutation(async ({ ctx }) => {
       const today = new Date().toISOString().split("T")[0]!;
+
+      // 获取完整市场数据
       let quote;
+      let biasData;
       try {
         quote = await getRealQuote();
       } catch {
         quote = getMockQuote();
       }
+      try {
+        biasData = await getRealDailyBias();
+      } catch {
+        biasData = getMockDailyBias();
+      }
+
       const events = getMockEconomicCalendar();
       const eventsSummary = events
-        .map((e) => `${e.time.split("T")[1]?.slice(0, 5)} - ${e.name} (${e.importance})`)
+        .map((e) => {
+          const timeStr = e.time.split("T")[1]?.slice(0, 5) ?? "";
+          const impactLabel = e.importance === "high" ? "高影响" : e.importance === "medium" ? "中影响" : "低影响";
+          return `- ${timeStr} UTC ${e.name}（${impactLabel}）${e.forecast ? `预期: ${e.forecast}` : ""} ${e.previous ? `前值: ${e.previous}` : ""}`;
+        })
         .join("\n");
+
+      // 构建丰富的市场上下文
+      const marketInfo = [
+        `## 当前市场数据（${new Date().toISOString()}）`,
+        "",
+        `**XAUUSD 现货价格**: ${quote.price}`,
+        `**今日开盘**: ${quote.open} | **最高**: ${quote.high} | **最低**: ${quote.low}`,
+        `**涨跌**: ${quote.change >= 0 ? "+" : ""}${quote.change} (${quote.change >= 0 ? "+" : ""}${quote.changePercent}%)`,
+        "",
+        `**今日Bias**: ${biasData.biasLabel}（置信度: ${biasData.confidence}）`,
+        `**风控状态**: ${biasData.riskLabel}`,
+        `**AI摘要**: ${biasData.summary}`,
+        "",
+        "**关键位**:",
+        `- R2: ${biasData.keyLevels.resistance2} | R1: ${biasData.keyLevels.resistance1}`,
+        `- 箱体: ${biasData.keyLevels.boxBottom} - ${biasData.keyLevels.boxTop}`,
+        `- S1: ${biasData.keyLevels.support1} | S2: ${biasData.keyLevels.support2}`,
+        "",
+        "**盘面状态**:",
+        `- 亚盘: ${biasData.sessions.asia} | 欧盘: ${biasData.sessions.europe} | 美盘: ${biasData.sessions.us}`,
+        "",
+        "**今日经济日历**:",
+        eventsSummary,
+      ].join("\n");
+
       const messages: Message[] = [
         { role: "system", content: TRADING_PLAN_PROMPT },
         {
           role: "user",
-          content: `请生成今日（${today}）的XAUUSD交易计划。\n\n当前市场信息：\n- XAUUSD 当前价格：${quote.price}\n- 今日开盘：${quote.open}\n- 今日最高：${quote.high}\n- 今日最低：${quote.low}\n- 涨跌：${quote.change} (${quote.changePercent}%)\n\n今日重要经济数据：\n${eventsSummary}\n\n请根据以上信息生成完整的交易计划。`,
+          content: `请生成今日（${today}）的XAUUSD日内交易计划。\n\n${marketInfo}\n\n请基于以上完整数据生成可执行的交易计划，所有价格必须是具体数字。`,
         },
       ];
-      const result = await invokeCustomLLM({ messages, maxTokens: 4096 });
+
+      const result = await invokeCustomLLM({
+        messages,
+        maxTokens: 4096,
+        temperature: 0.6,
+      });
       const content = extractContent(result);
-      const { id } = await createTradingPlan(ctx.user.id, today, content);
-      return { id, content, planDate: today };
+
+      // 尝试从内容中提取bias信息
+      let detectedBias: string | undefined;
+      let detectedMarketType: string | undefined;
+      if (content.includes("偏多") || content.includes("多头")) detectedBias = "bullish";
+      else if (content.includes("偏空") || content.includes("空头")) detectedBias = "bearish";
+      else if (content.includes("震荡")) detectedBias = "ranging";
+
+      if (content.includes("单边")) detectedMarketType = "单边";
+      else if (content.includes("震荡")) detectedMarketType = "震荡";
+      else detectedMarketType = "待定";
+
+      const { id } = await createTradingPlan(
+        ctx.user.id,
+        today,
+        content,
+        detectedMarketType,
+        detectedBias ?? biasData.bias
+      );
+      return { id, content, planDate: today, marketType: detectedMarketType, bias: detectedBias ?? biasData.bias };
     }),
   }),
 
@@ -215,7 +295,7 @@ export const appRouter = router({
           content: `当前XAUUSD价格：${quote.price}，今日涨跌：${quote.change}(${quote.changePercent}%)。\n今日有${events.filter((e) => e.importance === "high").length}个高影响数据。\n请给出今日市场偏向判断。`,
         },
       ];
-      const result = await invokeCustomLLM({ messages, maxTokens: 1024 });
+      const result = await invokeCustomLLM({ messages, maxTokens: 1024, temperature: 0.3 });
       const content = extractContent(result);
       try {
         return JSON.parse(content);
@@ -233,7 +313,7 @@ export const appRouter = router({
           { role: "system", content: NEWS_SUMMARY_PROMPT },
           { role: "user", content: `新闻标题：${news.title}\n新闻内容：${news.content}` },
         ];
-        const result = await invokeCustomLLM({ messages, maxTokens: 1024 });
+        const result = await invokeCustomLLM({ messages, maxTokens: 1024, temperature: 0.5 });
         return { summary: extractContent(result) };
       }),
   }),
@@ -260,7 +340,12 @@ async function analyzeChart(analysisId: number, imageUrl: string) {
       { role: "system", content: CHART_ANALYSIS_PROMPT },
       { role: "user", content: "请分析这张XAUUSD交易图表，识别所有关键形态、支撑阻力位和交易信号。" },
     ];
-    const result = await invokeCustomLLMWithImage({ messages, imageUrl, maxTokens: 4096 });
+    const result = await invokeCustomLLMWithImage({
+      messages,
+      imageUrl,
+      maxTokens: 4096,
+      temperature: 0.5,
+    });
     const content = extractContent(result);
     await updateChartAnalysis(analysisId, { analysisResult: content, status: "completed" });
   } catch (error) {

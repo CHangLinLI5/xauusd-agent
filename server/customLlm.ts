@@ -4,6 +4,7 @@ import { invokeLLM, type Message, type InvokeResult } from "./_core/llm";
 /**
  * 自定义 LLM 调用模块
  * 优先使用用户提供的 GPT-5.4 API，如果未配置则 fallback 到内置 LLM
+ * v2: 支持 temperature 参数，提升回复多样性
  */
 
 function hasCustomLlm(): boolean {
@@ -13,24 +14,30 @@ function hasCustomLlm(): boolean {
 export async function invokeCustomLLM(params: {
   messages: Message[];
   maxTokens?: number;
+  temperature?: number;
 }): Promise<InvokeResult> {
   if (hasCustomLlm()) {
+    const body: Record<string, unknown> = {
+      model: ENV.customLlmModel,
+      messages: params.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      max_tokens: params.maxTokens ?? 4096,
+    };
+
+    // Add temperature if specified
+    if (params.temperature !== undefined) {
+      body.temperature = params.temperature;
+    }
+
     const response = await fetch(ENV.customLlmApiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ENV.customLlmApiKey}`,
       },
-      body: JSON.stringify({
-        model: ENV.customLlmModel,
-        messages: params.messages.map((m) => {
-          if (typeof m.content === "string") {
-            return { role: m.role, content: m.content };
-          }
-          return { role: m.role, content: m.content };
-        }),
-        max_tokens: params.maxTokens ?? 4096,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -55,6 +62,7 @@ export async function invokeCustomLLMWithImage(params: {
   messages: Message[];
   imageUrl: string;
   maxTokens?: number;
+  temperature?: number;
 }): Promise<InvokeResult> {
   const messagesWithImage: Message[] = params.messages.map((m, i) => {
     if (i === params.messages.length - 1 && m.role === "user") {
@@ -73,20 +81,26 @@ export async function invokeCustomLLMWithImage(params: {
   });
 
   if (hasCustomLlm()) {
+    const body: Record<string, unknown> = {
+      model: ENV.customLlmModel,
+      messages: messagesWithImage.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      max_tokens: params.maxTokens ?? 4096,
+    };
+
+    if (params.temperature !== undefined) {
+      body.temperature = params.temperature;
+    }
+
     const response = await fetch(ENV.customLlmApiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ENV.customLlmApiKey}`,
       },
-      body: JSON.stringify({
-        model: ENV.customLlmModel,
-        messages: messagesWithImage.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        max_tokens: params.maxTokens ?? 4096,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

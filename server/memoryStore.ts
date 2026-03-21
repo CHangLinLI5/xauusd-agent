@@ -1,7 +1,9 @@
 /**
  * In-memory fallback store for when DATABASE_URL is not configured.
- * Provides the same interface as db.ts chat functions but stores data in memory.
+ * Provides the same interface as db.ts functions but stores data in memory.
  */
+
+// ========== Chat Sessions ==========
 
 interface MemorySession {
   id: number;
@@ -71,4 +73,68 @@ export function memGetSessionMessages(sessionId: number) {
   return messages
     .filter((m) => m.sessionId === sessionId)
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+// ========== Trading Plans ==========
+
+interface MemoryTradingPlan {
+  id: number;
+  userId: number;
+  planDate: string;
+  content: string;
+  marketType: string | null;
+  bias: string | null;
+  createdAt: Date;
+}
+
+let planIdCounter = 1;
+const tradingPlans: MemoryTradingPlan[] = [];
+
+export function memCreateTradingPlan(
+  userId: number,
+  planDate: string,
+  content: string,
+  marketType?: string,
+  bias?: string
+) {
+  const plan: MemoryTradingPlan = {
+    id: planIdCounter++,
+    userId,
+    planDate,
+    content,
+    marketType: marketType ?? null,
+    bias: bias ?? null,
+    createdAt: new Date(),
+  };
+  tradingPlans.push(plan);
+  return { id: plan.id };
+}
+
+export function memGetTodayPlan(userId: number, planDate: string) {
+  const plans = tradingPlans
+    .filter((p) => p.userId === userId && p.planDate === planDate)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return plans.length > 0 ? plans[0] : undefined;
+}
+
+export function memGetUserTradingPlans(userId: number) {
+  return tradingPlans
+    .filter((p) => p.userId === userId)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+// ========== System Config (in-memory) ==========
+
+const configStore = new Map<string, { configKey: string; configValue: string; description?: string }>();
+
+export function memGetConfig(key: string): string | undefined {
+  return configStore.get(key)?.configValue;
+}
+
+export function memSetConfig(key: string, value: string, description?: string) {
+  configStore.set(key, { configKey: key, configValue: value, description });
+}
+
+export function memGetAllConfigs() {
+  return Array.from(configStore.values());
 }
