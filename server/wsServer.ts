@@ -45,8 +45,8 @@ let connectedClients = 0;
 // ========== Push Intervals ==========
 
 const PUSH_INTERVALS = {
-  quote: 10 * 1000,      // Push quote every 10 seconds
-  fullSnapshot: 30 * 1000, // Push full snapshot every 30 seconds
+  quote: 3 * 1000,       // Push quote every 3 seconds
+  fullSnapshot: 15 * 1000, // Push full snapshot every 15 seconds
 };
 
 // ========== Initialize ==========
@@ -122,7 +122,7 @@ export function startRealtimePush() {
     } catch (err) {
       console.error("[WS] Push error:", err);
     }
-  }, 8000);
+  }, 3000);
 
   // Initial snapshot build
   buildSnapshot().then((s) => {

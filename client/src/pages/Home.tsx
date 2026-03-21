@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -38,8 +39,8 @@ export default function Home() {
   const shouldFallback = !ws.isConnected && !ws.quote;
   const { data: fallbackQuote } = trpc.market.quote.useQuery(undefined, {
     enabled: shouldFallback,
-    refetchInterval: shouldFallback ? 15000 : false,
-    staleTime: 10000,
+    refetchInterval: shouldFallback ? 8000 : false,
+    staleTime: 5000,
   });
   const { data: fallbackBias } = trpc.market.dailyBias.useQuery(undefined, {
     enabled: shouldFallback,
@@ -84,6 +85,18 @@ export default function Home() {
   const priceUp = (quote?.change ?? 0) >= 0;
   const quoteLoading = !quote;
 
+  // Price flash animation
+  const prevPriceRef = useRef<number>(0);
+  const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
+  useEffect(() => {
+    if (currentPrice > 0 && prevPriceRef.current > 0 && currentPrice !== prevPriceRef.current) {
+      setPriceFlash(currentPrice > prevPriceRef.current ? "up" : "down");
+      const timer = setTimeout(() => setPriceFlash(null), 600);
+      return () => clearTimeout(timer);
+    }
+    prevPriceRef.current = currentPrice;
+  }, [currentPrice]);
+
   // Responsive container class
   const containerClass = isMobile
     ? "px-4 py-5 space-y-4 max-w-lg mx-auto"
@@ -123,7 +136,7 @@ export default function Home() {
                   {quoteLoading ? (
                     <div className="h-9 w-40 shimmer rounded" />
                   ) : (
-                    <span className={`font-mono font-bold tracking-tighter leading-none ${isMobile ? "text-[36px]" : "text-[42px]"}`}>
+                    <span className={`font-mono font-bold tracking-tighter leading-none ${isMobile ? "text-[36px]" : "text-[42px]"} ${priceFlash === "up" ? "price-up" : priceFlash === "down" ? "price-down" : ""}`}>
                       {currentPrice > 0 ? currentPrice.toFixed(2) : "----"}
                     </span>
                   )}

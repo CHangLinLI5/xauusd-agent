@@ -10,6 +10,13 @@ import {
   systemConfig,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import {
+  memCreateChatSession,
+  memGetUserChatSessions,
+  memDeleteChatSession,
+  memAddChatMessage,
+  memGetSessionMessages,
+} from "./memoryStore";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -97,11 +104,14 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// ========== Chat Sessions ==========
+// ========== Chat Sessions (with memory fallback) ==========
 
 export async function createChatSession(userId: number, title?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    // Use in-memory fallback
+    return memCreateChatSession(userId, title);
+  }
   const result = await db.insert(chatSessions).values({
     userId,
     title: title ?? "新对话",
@@ -111,7 +121,7 @@ export async function createChatSession(userId: number, title?: string) {
 
 export async function getUserChatSessions(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memGetUserChatSessions(userId);
   return db
     .select()
     .from(chatSessions)
@@ -121,24 +131,30 @@ export async function getUserChatSessions(userId: number) {
 
 export async function deleteChatSession(sessionId: number, userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    memDeleteChatSession(sessionId, userId);
+    return;
+  }
   await db.delete(chatMessages).where(eq(chatMessages.sessionId, sessionId));
   await db
     .delete(chatSessions)
     .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)));
 }
 
-// ========== Chat Messages ==========
+// ========== Chat Messages (with memory fallback) ==========
 
 export async function addChatMessage(sessionId: number, role: "system" | "user" | "assistant", content: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    memAddChatMessage(sessionId, role, content);
+    return;
+  }
   await db.insert(chatMessages).values({ sessionId, role, content });
 }
 
 export async function getSessionMessages(sessionId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memGetSessionMessages(sessionId);
   return db
     .select()
     .from(chatMessages)
