@@ -59,7 +59,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 XAUUSD <span className="text-gold">Agent</span>
               </span>
               <span className="text-[9px] text-muted-foreground leading-tight tracking-wider uppercase">
-                Gold Trading System
+                Spot Gold Trading
               </span>
             </div>
           </div>
@@ -67,14 +67,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Live Price in Sidebar */}
           {quote && quote.price > 0 && (
             <div className="mx-3 mt-3 px-3 py-2.5 rounded-xl bg-surface/60 border border-border/30">
-              <div className="flex items-center gap-1.5 mb-1">
-                {ws.isConnected ? (
-                  <Wifi className="w-3 h-3 text-green/70" />
-                ) : (
-                  <WifiOff className="w-3 h-3 text-gold/70" />
-                )}
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  {ws.isConnected ? "实时" : "延迟"}
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  {ws.isConnected ? (
+                    <Wifi className="w-3 h-3 text-green/70" />
+                  ) : (
+                    <WifiOff className="w-3 h-3 text-gold/70" />
+                  )}
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    XAU/USD
+                  </span>
+                </div>
+                <span className="text-[8px] px-1 py-0.5 rounded bg-gold/10 text-gold/70 font-medium">
+                  Spot
                 </span>
               </div>
               <div className="text-lg font-mono font-bold tracking-tight">
@@ -159,7 +164,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 XAUUSD <span className="text-gold">Agent</span>
               </span>
               <span className="text-[9px] text-muted-foreground leading-tight tracking-wider uppercase">
-                Gold Trading System
+                Spot Gold Trading
               </span>
             </div>
           </div>

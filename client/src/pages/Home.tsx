@@ -26,6 +26,7 @@ import {
   Clock,
   Wifi,
   WifiOff,
+  Info,
 } from "lucide-react";
 
 export default function Home() {
@@ -97,6 +98,17 @@ export default function Home() {
     prevPriceRef.current = currentPrice;
   }, [currentPrice]);
 
+  // Format timestamp
+  const formatTime = (ts: string | undefined) => {
+    if (!ts) return "";
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "";
+    }
+  };
+
   // Responsive container class
   const containerClass = isMobile
     ? "px-4 py-5 space-y-4 max-w-lg mx-auto"
@@ -114,22 +126,35 @@ export default function Home() {
           }`} />
 
           <div className="relative">
-            <div className="flex items-center gap-2 mb-1">
-              {ws.isConnected ? (
-                <div className="status-dot status-dot-green" />
-              ) : (
-                <div className="status-dot status-dot-gold animate-pulse" />
-              )}
-              <span className="text-[11px] text-muted-foreground font-medium tracking-wider uppercase">
-                XAUUSD · 现货黄金 · {ws.isConnected ? "实时" : "延迟"}
-              </span>
-              {ws.isConnected ? (
-                <Wifi className="w-3 h-3 text-green/60" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-gold/60" />
+            {/* Header row: symbol + connection status + data source */}
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                {ws.isConnected ? (
+                  <div className="status-dot status-dot-green" />
+                ) : (
+                  <div className="status-dot status-dot-gold animate-pulse" />
+                )}
+                <span className="text-[11px] text-muted-foreground font-medium tracking-wider uppercase">
+                  XAU/USD
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/80 font-medium">
+                  Spot
+                </span>
+                {ws.isConnected ? (
+                  <Wifi className="w-3 h-3 text-green/60" />
+                ) : (
+                  <WifiOff className="w-3 h-3 text-gold/60" />
+                )}
+              </div>
+              {/* Timestamp */}
+              {quote?.timestamp && (
+                <span className="text-[9px] text-muted-foreground/60 font-mono">
+                  {formatTime(quote.timestamp)}
+                </span>
               )}
             </div>
 
+            {/* Price display */}
             <div className="flex items-end justify-between mt-3">
               <div>
                 <div className="flex items-baseline gap-2">
@@ -139,6 +164,9 @@ export default function Home() {
                     <span className={`font-mono font-bold tracking-tighter leading-none ${isMobile ? "text-[36px]" : "text-[42px]"} ${priceFlash === "up" ? "price-up" : priceFlash === "down" ? "price-down" : ""}`}>
                       {currentPrice > 0 ? currentPrice.toFixed(2) : "----"}
                     </span>
+                  )}
+                  {!quoteLoading && currentPrice > 0 && (
+                    <span className="text-[11px] text-muted-foreground/50 font-medium">USD/oz</span>
                   )}
                 </div>
                 {quote && currentPrice > 0 && (
@@ -156,6 +184,7 @@ export default function Home() {
                 )}
               </div>
 
+              {/* OHLC data */}
               <div className="text-right space-y-1">
                 <div className="flex items-center gap-1.5 justify-end">
                   <span className="text-[10px] text-muted-foreground">H</span>
@@ -176,6 +205,14 @@ export default function Home() {
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Data source footer */}
+            <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-border/15">
+              <Info className="w-3 h-3 text-muted-foreground/40" />
+              <span className="text-[9px] text-muted-foreground/40">
+                现货价格来源: OTC Spot Market | 日内数据: COMEX GC Futures
+              </span>
             </div>
           </div>
         </div>
@@ -250,6 +287,9 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Target className="w-4 h-4 text-gold" />
               <span className="text-sm font-semibold">今日关键位</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface/80 text-muted-foreground/60 font-medium">
+                Pivot
+              </span>
             </div>
             {currentPrice > 0 && (
               <span className="text-[10px] text-muted-foreground font-mono">
@@ -320,6 +360,9 @@ export default function Home() {
                     <Zap className="w-3 h-3 text-gold" />
                   </div>
                   <span className="text-xs font-semibold text-gold">AI 市场观点</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gold/8 text-gold/60 font-medium ml-auto">
+                    基于多因子分析
+                  </span>
                 </div>
                 <p className="text-[13px] leading-relaxed text-foreground/85">{bias.summary}</p>
               </div>
@@ -371,9 +414,9 @@ export default function Home() {
               <div className="px-3 pb-3.5">
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { label: "亚洲盘", time: "06:00-14:00", status: bias.sessions.asia },
-                    { label: "欧洲盘", time: "14:00-20:30", status: bias.sessions.europe },
-                    { label: "美洲盘", time: "20:30-06:00", status: bias.sessions.us },
+                    { label: "亚洲盘", time: "00:00-08:00 UTC", status: bias.sessions.asia },
+                    { label: "欧洲盘", time: "07:00-16:00 UTC", status: bias.sessions.europe },
+                    { label: "美洲盘", time: "13:00-22:00 UTC", status: bias.sessions.us },
                   ].map((s) => (
                     <div key={s.label} className="bg-surface/50 rounded-xl p-3 text-center">
                       <div className="text-[10px] text-muted-foreground mb-1 font-medium">{s.label}</div>

@@ -195,7 +195,8 @@ export default function AdminConfig() {
               <div className="space-y-2">
                 {[
                   { name: "自定义 LLM (GPT-5.4)", status: "active", label: "已配置" },
-                  { name: "行情 API (Yahoo Finance)", status: "active", label: "已接入" },
+                  { name: "现货金价 (OTC Spot)", status: "active", label: "已接入" },
+                  { name: "日内行情 (COMEX GC)", status: "active", label: "已接入" },
                   { name: "新闻 API", status: "mock", label: "Mock 数据" },
                   { name: "经济日历 API", status: "mock", label: "Mock 数据" },
                 ].map((api) => (

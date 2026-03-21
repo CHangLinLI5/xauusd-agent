@@ -145,7 +145,8 @@ function MarketContextBar({ compact = false }: { compact?: boolean }) {
         ) : (
           <WifiOff className="w-3 h-3 text-gold/70" />
         )}
-        <span className="text-[11px] text-muted-foreground uppercase tracking-wider">XAUUSD</span>
+        <span className="text-[11px] text-muted-foreground uppercase tracking-wider">XAU/USD</span>
+        <span className="text-[9px] px-1 py-0.5 rounded bg-gold/10 text-gold/70 font-medium">Spot</span>
         <span className="font-mono font-bold text-sm text-foreground">
           {quote?.price ? quote.price.toFixed(2) : "----"}
         </span>

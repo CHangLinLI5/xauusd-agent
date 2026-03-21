@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Market Data API Integration Tests
- * Tests the real YahooFinance Data API integration for XAUUSD quotes
+ * Tests the multi-source data integration for XAUUSD spot gold quotes
+ * Primary: fawazahmed0 Currency API (spot price)
+ * Secondary: YahooFinance GC=F (COMEX futures for OHLCV and multi-timeframe data)
  */
 
 describe("marketData", () => {
@@ -60,11 +62,9 @@ describe("marketData", () => {
     expect(timestamps.length).toBeGreaterThan(0);
   });
 
-  it("getRealQuote should return valid XAUUSD quote", { timeout: 15000 }, async () => {
-    // Clear module cache to avoid stale cached data from previous test runs
+  it("getRealQuote should return valid XAUUSD spot quote", { timeout: 15000 }, async () => {
     const mod = await import("./marketData");
 
-    // Call twice - first may warm cache, second should use it
     const quote = await mod.getRealQuote();
 
     expect(quote).toBeDefined();
@@ -77,7 +77,6 @@ describe("marketData", () => {
     expect(quote.timestamp).toBeDefined();
 
     // If API succeeded, price should be > 1000
-    // If API failed (e.g., rate limit), price will be 0 (default)
     if (quote.price > 0) {
       expect(quote.price).toBeGreaterThan(1000);
       expect(quote.high).toBeGreaterThanOrEqual(quote.low);

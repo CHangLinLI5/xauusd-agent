@@ -1,5 +1,6 @@
 /**
  * 构建实时市场上下文，注入到AI聊天系统提示词中
+ * 数据来源：fawazahmed0 Currency API (现货) + YahooFinance GC=F (日内波动)
  */
 import { getRealQuote, getRealDailyBias } from "./marketData";
 import { getMockQuote, getMockDailyBias, getMockEconomicCalendar } from "./mockData";
@@ -33,6 +34,7 @@ export async function buildMarketContext(): Promise<string> {
       "",
       "### 实时报价",
       `- XAUUSD 当前价格：${quote.price.toFixed(2)}`,
+      `- 数据类型：现货黄金（Spot Gold）`,
       `- 今日涨跌：${quote.change >= 0 ? "+" : ""}${quote.change.toFixed(2)} (${quote.change >= 0 ? "+" : ""}${quote.changePercent.toFixed(2)}%)`,
       `- 今日最高：${quote.high.toFixed(2)}`,
       `- 今日最低：${quote.low.toFixed(2)}`,
