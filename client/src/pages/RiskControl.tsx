@@ -1,6 +1,5 @@
 import {
   Shield,
-  AlertTriangle,
   Ban,
   CheckCircle2,
   XCircle,
@@ -11,7 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
+import { useIsMobile } from "@/hooks/useMobile";
 
 const FORBIDDEN_RULES = [
   { rule: "逆势加仓", desc: "趋势确认后不得在反方向加仓，亏损单不加仓", icon: "🚫" },
@@ -47,8 +46,14 @@ const ACTION_LEVELS = [
 ];
 
 export default function RiskControl() {
+  const isMobile = useIsMobile();
+
+  const containerClass = isMobile
+    ? "px-4 py-5 max-w-lg mx-auto space-y-4"
+    : "px-6 py-6 max-w-5xl mx-auto space-y-5";
+
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
+    <div className={containerClass}>
       {/* Header */}
       <div className="flex items-center gap-2.5">
         <Link href="/">
@@ -66,12 +71,7 @@ export default function RiskControl() {
       </div>
 
       {/* Core Warning */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-2xl p-4 border-red/15 relative overflow-hidden"
-      >
-        <div className="absolute top-0 right-0 w-24 h-24 bg-red/5 rounded-full blur-2xl" />
+      <div className="card-base rounded-2xl p-4 border-red/15 relative overflow-hidden">
         <div className="relative">
           <div className="flex items-center gap-2 text-red mb-2.5">
             <Flame className="w-4 h-4" />
@@ -83,122 +83,108 @@ export default function RiskControl() {
             没有止损的交易等于赌博。
           </p>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Forbidden Rules */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="glass-card rounded-2xl overflow-hidden"
-      >
-        <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
-          <Ban className="w-4 h-4 text-red" />
-          <span className="text-sm font-semibold">禁止行为</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red/10 text-red font-semibold ml-auto">
-            绝对禁止
-          </span>
-        </div>
-        <div className="px-3 pb-3.5 space-y-1.5">
-          {FORBIDDEN_RULES.map((item, i) => (
-            <div
-              key={item.rule}
-              className="flex items-start gap-3 py-2.5 px-3 rounded-lg bg-red/3 hover:bg-red/5 transition-colors"
-            >
-              <XCircle className="w-4 h-4 text-red/70 shrink-0 mt-0.5" />
-              <div>
-                <div className="text-[13px] font-semibold text-foreground">{item.rule}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{item.desc}</div>
+      {/* Desktop: two-column layout */}
+      <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-5"}>
+        {/* Forbidden Rules */}
+        <div className="card-base rounded-2xl overflow-hidden">
+          <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
+            <Ban className="w-4 h-4 text-red" />
+            <span className="text-sm font-semibold">禁止行为</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red/10 text-red font-semibold ml-auto">
+              绝对禁止
+            </span>
+          </div>
+          <div className="px-3 pb-3.5 space-y-1.5">
+            {FORBIDDEN_RULES.map((item) => (
+              <div
+                key={item.rule}
+                className="flex items-start gap-3 py-2.5 px-3 rounded-lg bg-red/3 hover:bg-red/5 transition-colors"
+              >
+                <XCircle className="w-4 h-4 text-red/70 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-[13px] font-semibold text-foreground">{item.rule}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{item.desc}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </motion.div>
 
-      {/* Allowed Rules */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="glass-card rounded-2xl overflow-hidden"
-      >
-        <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-green" />
-          <span className="text-sm font-semibold">允许操作</span>
-        </div>
-        <div className="px-3 pb-3.5 space-y-1.5">
-          {ALLOWED_RULES.map((item) => (
-            <div
-              key={item.rule}
-              className="flex items-start gap-3 py-2.5 px-3 rounded-lg bg-green/3 hover:bg-green/5 transition-colors"
-            >
-              <CheckCircle2 className="w-4 h-4 text-green/70 shrink-0 mt-0.5" />
-              <div>
-                <div className="text-[13px] font-semibold text-foreground">{item.rule}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{item.desc}</div>
+        {/* Allowed Rules */}
+        <div className="card-base rounded-2xl overflow-hidden">
+          <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-green" />
+            <span className="text-sm font-semibold">允许操作</span>
+          </div>
+          <div className="px-3 pb-3.5 space-y-1.5">
+            {ALLOWED_RULES.map((item) => (
+              <div
+                key={item.rule}
+                className="flex items-start gap-3 py-2.5 px-3 rounded-lg bg-green/3 hover:bg-green/5 transition-colors"
+              >
+                <CheckCircle2 className="w-4 h-4 text-green/70 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-[13px] font-semibold text-foreground">{item.rule}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{item.desc}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Action Levels */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="glass-card rounded-2xl overflow-hidden"
-      >
-        <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
-          <Crosshair className="w-4 h-4 text-gold" />
-          <span className="text-sm font-semibold">行动建议级别</span>
+      {/* Desktop: two-column for action levels + principles */}
+      <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-5"}>
+        {/* Action Levels */}
+        <div className="card-base rounded-2xl overflow-hidden">
+          <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
+            <Crosshair className="w-4 h-4 text-gold" />
+            <span className="text-sm font-semibold">行动建议级别</span>
+          </div>
+          <div className="px-3 pb-3.5 space-y-1.5">
+            {ACTION_LEVELS.map((item) => (
+              <div
+                key={item.level}
+                className={`flex items-center gap-3 py-2.5 px-3 rounded-lg ${item.bg} border ${item.border}`}
+              >
+                <span className={`text-[12px] font-bold ${item.color} whitespace-nowrap`}>
+                  {item.level}
+                </span>
+                <span className="text-[11px] text-muted-foreground">{item.desc}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="px-3 pb-3.5 space-y-1.5">
-          {ACTION_LEVELS.map((item) => (
-            <div
-              key={item.level}
-              className={`flex items-center gap-3 py-2.5 px-3 rounded-lg ${item.bg} border ${item.border}`}
-            >
-              <span className={`text-[12px] font-bold ${item.color} whitespace-nowrap`}>
-                {item.level}
-              </span>
-              <span className="text-[11px] text-muted-foreground">{item.desc}</span>
-            </div>
-          ))}
-        </div>
-      </motion.div>
 
-      {/* Core Principles */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="glass-card rounded-2xl overflow-hidden border-gold/10"
-      >
-        <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
-          <Lock className="w-4 h-4 text-gold" />
-          <span className="text-sm font-semibold">核心原则</span>
+        {/* Core Principles */}
+        <div className="card-base rounded-2xl overflow-hidden border-gold/10">
+          <div className="px-4 pt-3.5 pb-2 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-gold" />
+            <span className="text-sm font-semibold">核心原则</span>
+          </div>
+          <div className="px-3 pb-3.5 space-y-1">
+            {CORE_PRINCIPLES.map((p, i) => (
+              <div
+                key={i}
+                className={`flex items-start gap-3 py-2.5 px-3 rounded-lg transition-colors ${
+                  p.highlight ? "bg-gold/5" : "hover:bg-surface/50"
+                }`}
+              >
+                <span className="text-gold/60 text-[11px] font-mono font-bold mt-0.5 shrink-0">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className={`text-[13px] leading-snug ${
+                  p.highlight ? "font-semibold text-gold" : "text-foreground/80"
+                }`}>
+                  {p.text}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="px-3 pb-3.5 space-y-1">
-          {CORE_PRINCIPLES.map((p, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-3 py-2.5 px-3 rounded-lg transition-colors ${
-                p.highlight ? "bg-gold/5" : "hover:bg-surface/50"
-              }`}
-            >
-              <span className="text-gold/60 text-[11px] font-mono font-bold mt-0.5 shrink-0">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span className={`text-[13px] leading-snug ${
-                p.highlight ? "font-semibold text-gold" : "text-foreground/80"
-              }`}>
-                {p.text}
-              </span>
-            </div>
-          ))}
-        </div>
-      </motion.div>
+      </div>
 
       {/* Bottom Spacer */}
       <div className="h-2" />

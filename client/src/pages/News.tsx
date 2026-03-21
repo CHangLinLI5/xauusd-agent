@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
 import { Streamdown } from "streamdown";
-import { motion, AnimatePresence } from "framer-motion";
+import { useIsMobile } from "@/hooks/useMobile";
 import {
   Newspaper,
   TrendingUp,
@@ -30,14 +29,19 @@ const CATEGORIES = [
 export default function News() {
   const [selectedCategory, setSelectedCategory] = useState("全部");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const isMobile = useIsMobile();
   const { data: news, isLoading } = trpc.market.news.useQuery();
 
   const filteredNews = news?.filter(
     (item) => selectedCategory === "全部" || item.category === selectedCategory
   );
 
+  const containerClass = isMobile
+    ? "px-4 py-5 max-w-lg mx-auto space-y-4"
+    : "px-6 py-6 max-w-5xl mx-auto space-y-5";
+
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
+    <div className={containerClass}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -61,9 +65,9 @@ export default function News() {
           <button
             key={cat.key}
             onClick={() => setSelectedCategory(cat.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-150 ${
               selectedCategory === cat.key
-                ? "bg-gold/15 text-gold border border-gold/20 shadow-[0_0_12px_oklch(0.78_0.14_80/0.1)]"
+                ? "bg-gold/15 text-gold border border-gold/20"
                 : "bg-surface/50 text-muted-foreground hover:text-foreground border border-border/10 hover:border-border/30"
             }`}
           >
@@ -79,14 +83,11 @@ export default function News() {
           <span className="text-xs text-muted-foreground">加载新闻中...</span>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {filteredNews?.map((item, i) => (
-            <motion.div
+        <div className={isMobile ? "space-y-2.5" : "grid grid-cols-2 gap-4"}>
+          {filteredNews?.map((item) => (
+            <div
               key={item.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="glass-card rounded-xl overflow-hidden"
+              className="card-base rounded-xl overflow-hidden"
             >
               <div className="p-3.5">
                 {/* Header Row */}
@@ -152,31 +153,21 @@ export default function News() {
                     </button>
 
                     {/* Expanded Content */}
-                    <AnimatePresence>
-                      {expandedId === item.id && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="mt-3 pt-3 border-t border-border/20">
-                            <div className="text-xs leading-relaxed text-foreground/70 prose prose-invert prose-sm max-w-none [&_strong]:text-gold/80">
-                              <Streamdown>{item.content}</Streamdown>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {expandedId === item.id && (
+                      <div className="mt-3 pt-3 border-t border-border/20">
+                        <div className="text-xs leading-relaxed text-foreground/70 prose prose-invert prose-sm max-w-none [&_strong]:text-gold/80">
+                          <Streamdown>{item.content}</Streamdown>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           ))}
 
           {filteredNews?.length === 0 && (
-            <div className="text-center py-16">
+            <div className={`text-center py-16 ${isMobile ? "" : "col-span-2"}`}>
               <Newspaper className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
               <p className="text-sm text-muted-foreground">暂无相关新闻</p>
               <p className="text-xs text-muted-foreground/60 mt-1">尝试切换其他分类</p>

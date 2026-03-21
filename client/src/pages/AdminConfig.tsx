@@ -4,7 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
+import { useIsMobile } from "@/hooks/useMobile";
 import {
   Settings,
   Save,
@@ -25,6 +25,7 @@ import {
 export default function AdminConfig() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"news" | "calendar" | "model" | "risk">("model");
+  const isMobile = useIsMobile();
 
   const [systemPrompt, setSystemPrompt] = useState("");
   const [temperature, setTemperature] = useState("0.7");
@@ -50,6 +51,10 @@ export default function AdminConfig() {
     }
   }, [configs]);
 
+  const containerClass = isMobile
+    ? "px-4 py-5 max-w-lg mx-auto space-y-4"
+    : "px-6 py-6 max-w-4xl mx-auto space-y-5";
+
   if (user?.role !== "admin") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
@@ -73,7 +78,7 @@ export default function AdminConfig() {
   ];
 
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
+    <div className={containerClass}>
       {/* Header */}
       <div className="flex items-center gap-2.5">
         <Link href="/">
@@ -98,7 +103,7 @@ export default function AdminConfig() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-150 ${
                 activeTab === tab.key
                   ? "bg-gold/15 text-gold border border-gold/20"
                   : "bg-surface/50 text-muted-foreground hover:text-foreground border border-border/10"
@@ -113,12 +118,8 @@ export default function AdminConfig() {
 
       {/* Model Config */}
       {activeTab === "model" && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-4"
-        >
-          <div className="glass-card rounded-2xl p-4">
+        <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-5"}>
+          <div className="card-base rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
               <Cpu className="w-4 h-4 text-gold" />
               <span className="text-sm font-semibold">系统提示词</span>
@@ -140,84 +141,82 @@ export default function AdminConfig() {
             </Button>
           </div>
 
-          <div className="glass-card rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
-              <Bot className="w-4 h-4 text-gold" />
-              <span className="text-sm font-semibold">模型参数</span>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-[11px] text-muted-foreground mb-1.5 block font-medium">Temperature</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="2"
-                  value={temperature}
-                  onChange={(e) => setTemperature(e.target.value)}
-                  className="w-full bg-surface/60 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-gold/30 border border-border/20 focus:border-gold/30 font-mono transition-all"
-                />
+          <div className="space-y-4">
+            <div className="card-base rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
+                <Bot className="w-4 h-4 text-gold" />
+                <span className="text-sm font-semibold">模型参数</span>
               </div>
-              <div>
-                <label className="text-[11px] text-muted-foreground mb-1.5 block font-medium">Max Tokens</label>
-                <input
-                  type="number"
-                  step="100"
-                  min="100"
-                  max="8000"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(e.target.value)}
-                  className="w-full bg-surface/60 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-gold/30 border border-border/20 focus:border-gold/30 font-mono transition-all"
-                />
-              </div>
-              <Button
-                size="sm"
-                className="gap-1.5 bg-gold/15 hover:bg-gold/25 text-gold border-0 rounded-lg"
-                onClick={async () => {
-                  await saveConfig.mutateAsync({ key: "temperature", value: temperature, description: "LLM Temperature" });
-                  await saveConfig.mutateAsync({ key: "max_tokens", value: maxTokens, description: "LLM Max Tokens" });
-                }}
-                disabled={saveConfig.isPending}
-              >
-                {saveConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                保存参数
-              </Button>
-            </div>
-          </div>
-
-          <div className="glass-card rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
-              <Database className="w-4 h-4 text-gold" />
-              <span className="text-sm font-semibold">API 状态</span>
-            </div>
-            <div className="space-y-2">
-              {[
-                { name: "自定义 LLM (GPT-5.4)", status: "active", label: "已配置" },
-                { name: "行情 API (Yahoo Finance)", status: "active", label: "已接入" },
-                { name: "新闻 API", status: "mock", label: "Mock 数据" },
-                { name: "经济日历 API", status: "mock", label: "Mock 数据" },
-              ].map((api) => (
-                <div key={api.name} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface/30">
-                  <span className="text-xs text-foreground/80">{api.name}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-                    api.status === "active" ? "bg-green/10 text-green" : "bg-gold/10 text-gold"
-                  }`}>
-                    {api.label}
-                  </span>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1.5 block font-medium">Temperature</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                    value={temperature}
+                    onChange={(e) => setTemperature(e.target.value)}
+                    className="w-full bg-surface/60 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-gold/30 border border-border/20 focus:border-gold/30 font-mono transition-all"
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1.5 block font-medium">Max Tokens</label>
+                  <input
+                    type="number"
+                    step="100"
+                    min="100"
+                    max="8000"
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(e.target.value)}
+                    className="w-full bg-surface/60 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-gold/30 border border-border/20 focus:border-gold/30 font-mono transition-all"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-gold/15 hover:bg-gold/25 text-gold border-0 rounded-lg"
+                  onClick={async () => {
+                    await saveConfig.mutateAsync({ key: "temperature", value: temperature, description: "LLM Temperature" });
+                    await saveConfig.mutateAsync({ key: "max_tokens", value: maxTokens, description: "LLM Max Tokens" });
+                  }}
+                  disabled={saveConfig.isPending}
+                >
+                  {saveConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  保存参数
+                </Button>
+              </div>
+            </div>
+
+            <div className="card-base rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
+                <Database className="w-4 h-4 text-gold" />
+                <span className="text-sm font-semibold">API 状态</span>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { name: "自定义 LLM (GPT-5.4)", status: "active", label: "已配置" },
+                  { name: "行情 API (Yahoo Finance)", status: "active", label: "已接入" },
+                  { name: "新闻 API", status: "mock", label: "Mock 数据" },
+                  { name: "经济日历 API", status: "mock", label: "Mock 数据" },
+                ].map((api) => (
+                  <div key={api.name} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface/30">
+                    <span className="text-xs text-foreground/80">{api.name}</span>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                      api.status === "active" ? "bg-green/10 text-green" : "bg-gold/10 text-gold"
+                    }`}>
+                      {api.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {/* News Sources */}
       {activeTab === "news" && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-card rounded-2xl p-4"
-        >
+        <div className="card-base rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
             <Radio className="w-4 h-4 text-gold" />
             <span className="text-sm font-semibold">新闻源配置</span>
@@ -233,16 +232,12 @@ export default function AdminConfig() {
           <p className="text-[11px] text-muted-foreground mt-4 leading-relaxed">
             当前使用 Mock 数据。接入真实新闻 API 后可在此配置数据源和刷新频率。
           </p>
-        </motion.div>
+        </div>
       )}
 
       {/* Calendar Config */}
       {activeTab === "calendar" && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-card rounded-2xl p-4"
-        >
+        <div className="card-base rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
             <Globe className="w-4 h-4 text-gold" />
             <span className="text-sm font-semibold">经济日历配置</span>
@@ -258,21 +253,17 @@ export default function AdminConfig() {
           <p className="text-[11px] text-muted-foreground mt-4 leading-relaxed">
             当前使用 Mock 数据。接入真实经济日历 API 后可在此配置关注事件和提醒规则。
           </p>
-        </motion.div>
+        </div>
       )}
 
       {/* Risk Config */}
       {activeTab === "risk" && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-card rounded-2xl p-4"
-        >
+        <div className="card-base rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
             <Zap className="w-4 h-4 text-gold" />
             <span className="text-sm font-semibold">风控参数</span>
           </div>
-          <div className="space-y-3">
+          <div className={isMobile ? "space-y-3" : "grid grid-cols-2 gap-4"}>
             {[
               { label: "单笔最大风险（%）", defaultVal: "1", step: "0.1" },
               { label: "每日最大亏损（%）", defaultVal: "2", step: "0.1" },
@@ -289,16 +280,16 @@ export default function AdminConfig() {
                 />
               </div>
             ))}
-            <Button
-              size="sm"
-              className="gap-1.5 bg-gold/15 hover:bg-gold/25 text-gold border-0 rounded-lg"
-              onClick={() => toast.success("风控参数已保存")}
-            >
-              <Save className="w-3.5 h-3.5" />
-              保存风控参数
-            </Button>
           </div>
-        </motion.div>
+          <Button
+            size="sm"
+            className="mt-4 gap-1.5 bg-gold/15 hover:bg-gold/25 text-gold border-0 rounded-lg"
+            onClick={() => toast.success("风控参数已保存")}
+          >
+            <Save className="w-3.5 h-3.5" />
+            保存风控参数
+          </Button>
+        </div>
       )}
 
       {/* Bottom Spacer */}

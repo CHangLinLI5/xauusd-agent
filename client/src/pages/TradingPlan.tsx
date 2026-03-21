@@ -3,7 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Streamdown } from "streamdown";
-import { motion } from "framer-motion";
+import { useIsMobile } from "@/hooks/useMobile";
 import {
   ClipboardList,
   Loader2,
@@ -21,6 +21,7 @@ import { useState } from "react";
 export default function TradingPlan() {
   const { isAuthenticated } = useAuth();
   const [showHistory, setShowHistory] = useState(false);
+  const isMobile = useIsMobile();
 
   const utils = trpc.useUtils();
 
@@ -37,6 +38,10 @@ export default function TradingPlan() {
       utils.plan.today.invalidate();
     },
   });
+
+  const containerClass = isMobile
+    ? "px-4 py-5 max-w-lg mx-auto space-y-4"
+    : "px-6 py-6 max-w-4xl mx-auto space-y-5";
 
   if (!isAuthenticated) {
     return (
@@ -60,7 +65,7 @@ export default function TradingPlan() {
 
   if (showHistory) {
     return (
-      <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
+      <div className={containerClass}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setShowHistory(false)}>
             <ChevronLeft className="w-4 h-4" />
@@ -70,14 +75,11 @@ export default function TradingPlan() {
             <h1 className="text-lg font-bold">历史计划</h1>
           </div>
         </div>
-        <div className="space-y-2.5">
-          {planHistory?.map((plan, i) => (
-            <motion.div
+        <div className={isMobile ? "space-y-2.5" : "grid grid-cols-2 gap-4"}>
+          {planHistory?.map((plan) => (
+            <div
               key={plan.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="glass-card rounded-xl p-4"
+              className="card-base rounded-xl p-4"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -97,10 +99,10 @@ export default function TradingPlan() {
               <div className="text-xs prose prose-invert prose-sm max-w-none text-foreground/70 [&_strong]:text-gold/80">
                 <Streamdown>{plan.content.slice(0, 200) + "..."}</Streamdown>
               </div>
-            </motion.div>
+            </div>
           ))}
           {(!planHistory || planHistory.length === 0) && (
-            <div className="text-center py-16">
+            <div className={`text-center py-16 ${isMobile ? "" : "col-span-2"}`}>
               <History className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
               <p className="text-sm text-muted-foreground">暂无历史计划</p>
             </div>
@@ -111,7 +113,7 @@ export default function TradingPlan() {
   }
 
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
+    <div className={containerClass}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -143,12 +145,7 @@ export default function TradingPlan() {
 
       {/* Generate Button */}
       {!todayPlan && !loadingToday && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-card rounded-2xl p-6 text-center relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-green/5 rounded-full blur-3xl" />
+        <div className="card-base rounded-2xl p-6 text-center relative overflow-hidden">
           <div className="relative">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green/15 to-green/5 flex items-center justify-center mx-auto mb-4">
               <Sparkles className="w-7 h-7 text-green" />
@@ -176,7 +173,7 @@ export default function TradingPlan() {
               )}
             </Button>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {loadingToday && (
@@ -188,11 +185,7 @@ export default function TradingPlan() {
 
       {/* Plan Content */}
       {todayPlan && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-4"
-        >
+        <div className="space-y-4">
           {/* Plan Meta */}
           {(todayPlan.marketType || todayPlan.bias) && (
             <div className="flex items-center gap-2 flex-wrap">
@@ -214,7 +207,7 @@ export default function TradingPlan() {
           )}
 
           {/* Main Content */}
-          <div className="glass-card rounded-2xl p-4">
+          <div className="card-base rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
               <FileText className="w-4 h-4 text-gold" />
               <span className="text-sm font-semibold">计划详情</span>
@@ -243,7 +236,7 @@ export default function TradingPlan() {
               </>
             )}
           </Button>
-        </motion.div>
+        </div>
       )}
     </div>
   );
