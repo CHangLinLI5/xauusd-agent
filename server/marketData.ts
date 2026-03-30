@@ -1,16 +1,15 @@
 /**
- * XAUUSD 现货黄金行情数据模块 v3
+ * XAUUSD 现货黄金行情数据模块 v4
  *
- * 数据源策略（多源融合 + 快速降级）：
- * 1. 主数据源：YahooFinance GC=F 1m/1d — 提供准实时 COMEX 黄金期货价格 + 日内 OHLCV
- * 2. 备用数据源：YahooFinance GC=F 直连 — 绕过代理网关
- * 3. 降级数据源：fawazahmed0 Currency API — 免费日级别现货汇率（仅作最后兜底）
+ * 核心改进：修复期货/现货价差问题
+ * - GC=F 是 COMEX 黄金期货，比现货 XAUUSD 高约 $20-40（期货升水/contango）
+ * - 新增 BullionVault 作为现货金价参考源，用于校准期货升水
  *
- * 优化点：
- * - 缓存 TTL 从 5s 降至 2s，确保价格刷新更快
- * - 后台预热间隔从 30s 降至 10s
- * - 增加请求超时控制（5s），避免单次请求阻塞
- * - 1m 级别数据替代 1d 级别，获取更精确的日内 OHLC
+ * 数据源策略：
+ * 1. 主数据源：YahooFinance GC=F 1m K线 — 提供准实时价格走势
+ *    → 自动扣除期货升水，转换为现货 XAUUSD 价格
+ * 2. 现货校准源：BullionVault XML API — 免费实时现货金价（用于计算升水幅度）
+ * 3. 降级数据源：fawazahmed0 — 日级别现货汇率（最后兜底）
  */
 import { callDataApi } from "./_core/dataApi";
 import type { MarketQuote } from "./mockData";
@@ -88,6 +87,7 @@ interface CacheEntry<T> {
 const cache: {
   quote?: CacheEntry<MarketQuote>;
   spotPrice?: CacheEntry<number>;
+  spotPremium?: CacheEntry<number>;
   dailyData?: CacheEntry<YahooChartResult>;
   weeklyData?: CacheEntry<YahooChartResult>;
   monthlyData?: CacheEntry<YahooChartResult>;
@@ -98,7 +98,8 @@ const cache: {
 
 const CACHE_TTL = {
   quote: 2 * 1000,             // 2 seconds — near real-time
-  spotPrice: 60 * 1000,        // 1 minute for spot price (daily rate, no need to refresh often)
+  spotPrice: 60 * 1000,        // 1 minute for fawazahmed0 spot price
+  spotPremium: 30 * 1000,      // 30 seconds for futures premium calculation
   realtime: 3 * 1000,          // 3 seconds for 1m candle data
   intraday: 2 * 60 * 1000,     // 2 minutes for 15m candle data
   daily: 10 * 60 * 1000,       // 10 minutes for daily data
@@ -168,7 +169,109 @@ async function fetchGoldChartDirect(interval: string, range: string): Promise<Ya
   }
 }
 
-// ========== Source 3: fawazahmed0 Spot Price (daily rate fallback) ==========
+// ========== Source 3: BullionVault Spot Gold (for premium calibration) ==========
+
+/**
+ * 从 BullionVault 获取实时现货金价
+ * 返回 USD/oz 现货价格（bid/ask 中间价）
+ * BullionVault XML 中 limit 值单位为 0.01 USD/gram
+ * 转换: (limit / 100) * 31.1035 = USD/troy oz
+ */
+async function fetchBullionVaultSpot(): Promise<number | null> {
+  try {
+    const url = "https://www.bullionvault.com/view_market_xml.do?marketWidth=1&considerationCurrency=USD&metal=GOLD&priceChartPeriod=1d";
+    const response = await fetchWithTimeout(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; XAUUSDAgent/1.0)" },
+    }, 5000);
+
+    if (!response.ok) return null;
+
+    const text = await response.text();
+
+    // Parse XML to extract bid/ask prices for GOLD/USD
+    // BullionVault limit values are in 0.01 USD per gram
+    // We need the first GOLD/USD pitch's bid and ask
+    const bidMatch = text.match(/<pitch[^>]*securityClassNarrative="GOLD"[^>]*considerationCurrency="USD"[^>]*>[\s\S]*?<buyPrices>[\s\S]*?<price[^>]*limit="(\d+)"[^>]*\/>/);
+    const askMatch = text.match(/<pitch[^>]*securityClassNarrative="GOLD"[^>]*considerationCurrency="USD"[^>]*>[\s\S]*?<sellPrices>[\s\S]*?<price[^>]*limit="(\d+)"[^>]*\/>/);
+
+    if (bidMatch && askMatch) {
+      const bidLimit = parseInt(bidMatch[1]!, 10);
+      const askLimit = parseInt(askMatch[1]!, 10);
+
+      // Convert from 0.01 USD/gram to USD/troy oz
+      // limit / 100 = USD/gram, then * 31.1035 = USD/troy oz
+      const GRAMS_PER_TROY_OZ = 31.1035;
+      const bidPerOz = (bidLimit / 100) * GRAMS_PER_TROY_OZ;
+      const askPerOz = (askLimit / 100) * GRAMS_PER_TROY_OZ;
+      const midPrice = (bidPerOz + askPerOz) / 2;
+
+      if (midPrice > 1000 && midPrice < 10000) {
+        console.log(`[MarketData] BullionVault spot: bid=$${bidPerOz.toFixed(2)} ask=$${askPerOz.toFixed(2)} mid=$${midPrice.toFixed(2)}`);
+        return midPrice;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[MarketData] BullionVault fetch failed:", error);
+    return null;
+  }
+}
+
+// ========== Futures Premium Calculation ==========
+
+/**
+ * 计算期货升水（GC=F 期货价格 - 现货价格）
+ * 用于将 GC=F 数据转换为 XAUUSD 现货价格
+ * 默认升水约 $30，通过实时数据校准
+ */
+const DEFAULT_PREMIUM = 30; // Default futures premium in USD
+
+async function getFuturesPremium(): Promise<number> {
+  if (isCacheValid(cache.spotPremium, CACHE_TTL.spotPremium)) {
+    return cache.spotPremium.data;
+  }
+
+  const cachedPremium = (cache.spotPremium as CacheEntry<number> | undefined);
+
+  try {
+    // Get BullionVault spot price
+    const spotPrice = await fetchBullionVaultSpot();
+    if (!spotPrice) {
+      return cachedPremium?.data ?? DEFAULT_PREMIUM;
+    }
+
+    // Get current GC=F futures price
+    const futuresData = await fetchGoldChartViaApi("1m", "1d");
+    if (!futuresData) {
+      return cachedPremium?.data ?? DEFAULT_PREMIUM;
+    }
+
+    const futuresPrice = futuresData.meta.regularMarketPrice;
+    const premium = futuresPrice - spotPrice;
+
+    // Sanity check: premium should be between -$50 and +$100
+    if (premium > -50 && premium < 100) {
+      console.log(`[MarketData] Futures premium: $${premium.toFixed(2)} (GC=F $${futuresPrice.toFixed(2)} - Spot $${spotPrice.toFixed(2)})`);
+      cache.spotPremium = { data: premium, timestamp: Date.now() };
+      return premium;
+    }
+
+    console.warn(`[MarketData] Unusual premium $${premium.toFixed(2)}, using default $${DEFAULT_PREMIUM}`);
+    return cachedPremium?.data ?? DEFAULT_PREMIUM;
+  } catch {
+    return cachedPremium?.data ?? DEFAULT_PREMIUM;
+  }
+}
+
+/**
+ * 将期货价格转换为现货价格
+ */
+function futurestoSpot(futuresPrice: number, premium: number): number {
+  return round2(futuresPrice - premium);
+}
+
+// ========== Source 4: fawazahmed0 Spot Price (daily rate fallback) ==========
 
 async function fetchSpotGoldPrice(): Promise<number | null> {
   if (isCacheValid(cache.spotPrice, CACHE_TTL.spotPrice)) {
@@ -237,35 +340,39 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return cache.quote.data;
   }
 
+  // Get futures premium for spot conversion
+  const premium = await getFuturesPremium();
+
   // Primary: use 1m candle data for most real-time price
   const realtimeData = await getRealtimeData();
 
   if (realtimeData) {
     const meta = realtimeData.meta;
     const quotes = realtimeData.indicators.quote[0];
-    const closes = quotes.close.filter((c): c is number => c !== null);
     const opens = quotes.open.filter((o): o is number => o !== null);
     const highs = quotes.high.filter((h): h is number => h !== null);
     const lows = quotes.low.filter((l): l is number => l !== null);
 
-    // Use the latest available price
-    const price = meta.regularMarketPrice;
-    const prevClose = meta.chartPreviousClose;
-    const change = price - prevClose;
-    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+    // Convert futures prices to spot prices
+    const spotPrice = futurestoSpot(meta.regularMarketPrice, premium);
+    const spotPrevClose = futurestoSpot(meta.chartPreviousClose, premium);
+    const change = spotPrice - spotPrevClose;
+    const changePercent = spotPrevClose > 0 ? (change / spotPrevClose) * 100 : 0;
 
-    // Calculate today's OHLC from 1m candles for accuracy
-    const todayOpen = opens.length > 0 ? opens[0]! : price;
-    const todayHigh = highs.length > 0 ? Math.max(meta.regularMarketDayHigh, ...highs) : meta.regularMarketDayHigh;
-    const todayLow = lows.length > 0 ? Math.min(...lows.filter(l => l > 1000), meta.regularMarketDayLow) : meta.regularMarketDayLow;
+    // Calculate today's OHLC from 1m candles, converted to spot
+    const todayOpen = opens.length > 0 ? futurestoSpot(opens[0]!, premium) : spotPrice;
+    const rawHigh = highs.length > 0 ? Math.max(meta.regularMarketDayHigh, ...highs) : meta.regularMarketDayHigh;
+    const rawLow = lows.length > 0 ? Math.min(...lows.filter(l => l > 1000), meta.regularMarketDayLow) : meta.regularMarketDayLow;
+    const todayHigh = futurestoSpot(rawHigh, premium);
+    const todayLow = futurestoSpot(rawLow, premium);
 
     const quoteData: MarketQuote = {
       symbol: "XAUUSD",
-      price: round2(price),
+      price: round2(spotPrice),
       change: round2(change),
       changePercent: round2(changePercent),
       high: round2(todayHigh),
-      low: round2(todayLow > 1000 ? todayLow : price),
+      low: round2(todayLow > 1000 ? todayLow : spotPrice),
       open: round2(todayOpen),
       timestamp: new Date(meta.regularMarketTime * 1000).toISOString(),
     };
@@ -280,8 +387,9 @@ export async function getRealQuote(): Promise<MarketQuote> {
     const meta = dailyData.meta;
     const quotes = dailyData.indicators.quote[0];
     const closes = quotes.close.filter((c): c is number => c !== null);
-    const prevClose = closes.length >= 2 ? closes[closes.length - 2]! : meta.chartPreviousClose;
-    const change = meta.regularMarketPrice - prevClose;
+    const prevClose = closes.length >= 2 ? futurestoSpot(closes[closes.length - 2]!, premium) : futurestoSpot(meta.chartPreviousClose, premium);
+    const spotPrice = futurestoSpot(meta.regularMarketPrice, premium);
+    const change = spotPrice - prevClose;
     const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
     const opens = quotes.open.filter((o): o is number => o !== null);
@@ -289,12 +397,12 @@ export async function getRealQuote(): Promise<MarketQuote> {
 
     const quoteData: MarketQuote = {
       symbol: "XAUUSD",
-      price: round2(meta.regularMarketPrice),
+      price: round2(spotPrice),
       change: round2(change),
       changePercent: round2(changePercent),
-      high: round2(meta.regularMarketDayHigh),
-      low: round2(meta.regularMarketDayLow),
-      open: round2(rawOpen),
+      high: round2(futurestoSpot(meta.regularMarketDayHigh, premium)),
+      low: round2(futurestoSpot(meta.regularMarketDayLow, premium)),
+      open: round2(futurestoSpot(rawOpen, premium)),
       timestamp: new Date(meta.regularMarketTime * 1000).toISOString(),
     };
 
@@ -302,7 +410,7 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return quoteData;
   }
 
-  // Last resort: fawazahmed0 spot price
+  // Last resort: fawazahmed0 spot price (already spot, no premium adjustment)
   const spotPrice = await fetchSpotGoldPrice();
   if (spotPrice && spotPrice > 1000) {
     const prevQuote = (cache.quote as CacheEntry<MarketQuote> | undefined)?.data;
@@ -367,9 +475,10 @@ async function getWeeklyData(): Promise<YahooChartResult | null> {
 /**
  * 计算关键位
  * 基于多周期数据计算支撑阻力位和箱体
- * 当 GC=F 不可用时，基于现货价格生成估算关键位
+ * 所有价格自动转换为现货价格
  */
 export async function calculateKeyLevels(): Promise<KeyLevels> {
+  const premium = await getFuturesPremium();
   const [dailyData, intradayData] = await Promise.all([
     getDailyData(),
     getIntradayData(),
@@ -383,12 +492,17 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
     const closes = quotes.close.filter((c): c is number => c !== null);
 
     if (highs.length >= 5 && lows.length >= 5) {
-      const boxTop = round2(Math.max(...highs.slice(-5)));
-      const boxBottom = round2(Math.min(...lows.slice(-5)));
+      // Convert futures prices to spot for key level calculation
+      const spotHighs = highs.map(h => h - premium);
+      const spotLows = lows.map(l => l - premium);
+      const spotCloses = closes.map(c => c - premium);
 
-      const lastHigh = highs[highs.length - 1]!;
-      const lastLow = lows[lows.length - 1]!;
-      const lastClose = closes[closes.length - 1]!;
+      const boxTop = round2(Math.max(...spotHighs.slice(-5)));
+      const boxBottom = round2(Math.min(...spotLows.slice(-5)));
+
+      const lastHigh = spotHighs[spotHighs.length - 1]!;
+      const lastLow = spotLows[spotLows.length - 1]!;
+      const lastClose = spotCloses[spotCloses.length - 1]!;
       const pivot = (lastHigh + lastLow + lastClose) / 3;
 
       const resistance1 = round2(2 * pivot - lastLow);
@@ -403,8 +517,8 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
         const intradayLows = intradayQuotes.low.filter((l): l is number => l !== null && l > 1000);
 
         if (intradayHighs.length > 0 && intradayLows.length > 0) {
-          const todayHigh = Math.max(...intradayHighs.slice(-20));
-          const todayLow = Math.min(...intradayLows.slice(-20));
+          const todayHigh = Math.max(...intradayHighs.slice(-20)) - premium;
+          const todayLow = Math.min(...intradayLows.slice(-20)) - premium;
 
           return {
             resistance1: Math.max(resistance1, round2(todayHigh + (todayHigh - todayLow) * 0.382)),
@@ -480,8 +594,10 @@ export async function getRealDailyBias(): Promise<DailyBiasData> {
   let confidence: "high" | "medium" | "low" = "medium";
 
   if (dailyData) {
+    const premium = await getFuturesPremium();
     const closes = dailyData.indicators.quote[0].close
-      .filter((c): c is number => c !== null);
+      .filter((c): c is number => c !== null)
+      .map(c => c - premium); // Convert to spot
 
     if (closes.length >= 5) {
       const recent5 = closes.slice(-5);
@@ -607,12 +723,16 @@ let warmingInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * 后台预热缓存：服务器启动时预加载数据，并定期后台刷新
- * v3: 缩短预热间隔至 10s，优先加载 1m 实时数据
+ * v4: 启动时先校准期货升水，再获取报价
  */
 export function startCacheWarming() {
-  // Immediate warm-up: fetch real-time quote first
-  getRealQuote()
-    .then((q) => console.log(`[MarketData] Initial quote: $${q.price}`))
+  // Immediate warm-up: calibrate premium first, then fetch quote
+  getFuturesPremium()
+    .then((p) => {
+      console.log(`[MarketData] Initial futures premium: $${p.toFixed(2)}`);
+      return getRealQuote();
+    })
+    .then((q) => console.log(`[MarketData] Initial spot quote: $${q.price} (XAUUSD)`))
     .catch(() => console.log("[MarketData] Initial quote fetch failed, will retry"));
 
   // Staggered warm-up for daily/intraday data (non-blocking)
@@ -625,6 +745,14 @@ export function startCacheWarming() {
   warmingInterval = setInterval(async () => {
     try {
       await getRealQuote();
+    } catch {
+      // silent
+    }
+    // Refresh premium periodically
+    try {
+      if (!isCacheValid(cache.spotPremium, CACHE_TTL.spotPremium)) {
+        await getFuturesPremium();
+      }
     } catch {
       // silent
     }
@@ -641,7 +769,7 @@ export function startCacheWarming() {
     }
   }, 10 * 1000);
 
-  console.log("[MarketData] Background cache warming started (10s interval, multi-source with fast degradation)");
+  console.log("[MarketData] Background cache warming started (10s interval, futures-to-spot conversion enabled)");
 }
 
 export function stopCacheWarming() {
