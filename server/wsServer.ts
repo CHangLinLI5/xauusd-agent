@@ -1,16 +1,19 @@
 /**
- * WebSocket 实时推送服务 v3
+ * WebSocket 实时推送服务 v5
  *
- * 优化点：
- * - 推送间隔从 3s/15s 优化为 2s/10s，价格更新更快
- * - 连接时立即推送最新数据 + 主动构建快照
- * - 增加错误隔离，单次推送失败不影响后续
- * - 增加连接状态日志
+ * v5 改进：
+ * - 使用真实新闻源（Google News RSS）替代 Mock 新闻
+ * - 使用动态经济日历替代 Mock 日历
+ * - 优化推送策略：报价 3s，快照 20s（减少 API 压力）
+ * - 新闻独立刷新周期（5分钟），不阻塞报价推送
+ * - 连接时立即推送缓存数据
  */
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { getRealQuote, calculateKeyLevels, getRealDailyBias } from "./marketData";
-import { getMockQuote, getMockDailyBias, getMockEconomicCalendar, getMockNews } from "./mockData";
+import { getMockQuote, getMockDailyBias } from "./mockData";
+import { getGoldNews } from "./newsService";
+import { getEconomicCalendar } from "./calendarService";
 import type { MarketQuote } from "./mockData";
 
 // ========== Types ==========
@@ -34,8 +37,8 @@ interface MarketSnapshot {
     };
     sessions: { asia: string; europe: string; us: string };
   };
-  calendar: ReturnType<typeof getMockEconomicCalendar>;
-  news: ReturnType<typeof getMockNews>;
+  calendar: ReturnType<typeof getEconomicCalendar>;
+  news: Awaited<ReturnType<typeof getGoldNews>>;
   serverTime: string;
 }
 
@@ -46,11 +49,16 @@ let pushInterval: ReturnType<typeof setInterval> | null = null;
 let lastSnapshot: MarketSnapshot | null = null;
 let connectedClients = 0;
 
+// Separate news cache to avoid blocking quote pushes
+let cachedNews: Awaited<ReturnType<typeof getGoldNews>> | null = null;
+let lastNewsFetch = 0;
+const NEWS_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
 // ========== Push Intervals ==========
 
 const PUSH_INTERVALS = {
-  quote: 2 * 1000,        // Push quote every 2 seconds
-  fullSnapshot: 10 * 1000, // Push full snapshot every 10 seconds
+  quote: 3 * 1000,          // Push quote every 3 seconds
+  fullSnapshot: 20 * 1000,  // Push full snapshot every 20 seconds
 };
 
 // ========== Initialize ==========
@@ -71,7 +79,7 @@ export function initWebSocket(httpServer: HttpServer) {
     connectedClients++;
     console.log(`[WS] Client connected (${connectedClients} total)`);
 
-    // Send last snapshot immediately on connect
+    // Send last snapshot immediately on connect (from cache, no new API call)
     if (lastSnapshot) {
       socket.emit("market:snapshot", lastSnapshot);
     } else {
@@ -80,7 +88,6 @@ export function initWebSocket(httpServer: HttpServer) {
         lastSnapshot = snapshot;
         socket.emit("market:snapshot", snapshot);
       }).catch(() => {
-        // If snapshot build fails, at least send a quote
         getQuoteSafe().then((quote) => {
           socket.emit("market:quote", quote);
         });
@@ -94,7 +101,7 @@ export function initWebSocket(httpServer: HttpServer) {
         lastSnapshot = snapshot;
         socket.emit("market:snapshot", snapshot);
       } catch (err) {
-        console.error("[WS] Failed to build snapshot on request:", err);
+        console.error("[WS] Failed to build snapshot on request:", (err as Error).message?.slice(0, 80));
       }
     });
 
@@ -118,24 +125,27 @@ let lastQuotePush = 0;
 let lastFullPush = 0;
 
 export function startRealtimePush() {
-  // Main push loop - runs every 2 seconds
+  // Pre-fetch news in background (non-blocking)
+  refreshNews();
+
+  // Main push loop - runs every 3 seconds
   pushInterval = setInterval(async () => {
     if (!io || connectedClients === 0) return;
 
     const now = Date.now();
 
-    // Always push quote (lightweight, every 2s)
+    // Push quote every 3s
     if (now - lastQuotePush >= PUSH_INTERVALS.quote) {
       try {
         const quote = await getQuoteSafe();
         io.emit("market:quote", quote);
         lastQuotePush = now;
       } catch (err) {
-        console.error("[WS] Quote push error:", err);
+        console.error("[WS] Quote push error:", (err as Error).message?.slice(0, 80));
       }
     }
 
-    // Push full snapshot less frequently (every 10s)
+    // Push full snapshot every 20s
     if (now - lastFullPush >= PUSH_INTERVALS.fullSnapshot) {
       try {
         const snapshot = await buildSnapshot();
@@ -143,15 +153,15 @@ export function startRealtimePush() {
         io.emit("market:snapshot", snapshot);
         lastFullPush = now;
       } catch (err) {
-        console.error("[WS] Snapshot push error:", err);
+        console.error("[WS] Snapshot push error:", (err as Error).message?.slice(0, 80));
       }
     }
-  }, 2000);
+  }, 3000);
 
   // Initial snapshot build
   buildSnapshot().then((s) => {
     lastSnapshot = s;
-    console.log(`[WS] Initial snapshot built ($${s.quote.price}), realtime push started (2s quote / 10s snapshot)`);
+    console.log(`[WS] Initial snapshot built ($${s.quote.price}), realtime push started (3s quote / 20s snapshot)`);
   }).catch(() => {
     console.warn("[WS] Initial snapshot build failed, will retry");
   });
@@ -174,6 +184,20 @@ async function getQuoteSafe(): Promise<MarketQuote> {
   }
 }
 
+async function refreshNews() {
+  const now = Date.now();
+  if (cachedNews && now - lastNewsFetch < NEWS_REFRESH_INTERVAL) {
+    return;
+  }
+
+  try {
+    cachedNews = await getGoldNews();
+    lastNewsFetch = now;
+  } catch (err) {
+    console.warn("[WS] News refresh failed:", (err as Error).message?.slice(0, 80));
+  }
+}
+
 async function buildSnapshot(): Promise<MarketSnapshot> {
   let quote: MarketQuote;
   let bias;
@@ -190,8 +214,37 @@ async function buildSnapshot(): Promise<MarketSnapshot> {
     bias = getMockDailyBias();
   }
 
-  const calendar = getMockEconomicCalendar();
-  const news = getMockNews();
+  // Get calendar (synchronous, dynamic generation)
+  const calendar = getEconomicCalendar();
+
+  // Get news (use cached or refresh in background)
+  let news = cachedNews;
+  if (!news) {
+    // First time: try to fetch, but don't block too long
+    try {
+      const newsPromise = getGoldNews();
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+      const result = await Promise.race([newsPromise, timeoutPromise]);
+      if (result) {
+        news = result;
+        cachedNews = result;
+        lastNewsFetch = Date.now();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Fallback to mock if still no news
+  if (!news || news.length === 0) {
+    const { getMockNews } = await import("./mockData");
+    news = getMockNews();
+  }
+
+  // Trigger background news refresh if stale
+  if (Date.now() - lastNewsFetch > NEWS_REFRESH_INTERVAL) {
+    refreshNews(); // fire and forget
+  }
 
   return {
     quote,

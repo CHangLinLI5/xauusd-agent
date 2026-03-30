@@ -1,10 +1,11 @@
 /**
  * 构建实时市场上下文，注入到AI聊天系统提示词中
- * 数据来源：fawazahmed0 Currency API (现货) + YahooFinance GC=F (日内波动)
- * v2: 更紧凑的格式，减少冗余，增加可操作信息
+ * 数据来源：YahooFinance GC=F (日内波动) + BullionVault (现货校准)
+ * v3: 使用动态经济日历替代 Mock，格式更紧凑
  */
 import { getRealQuote, getRealDailyBias } from "./marketData";
-import { getMockQuote, getMockDailyBias, getMockEconomicCalendar } from "./mockData";
+import { getMockQuote, getMockDailyBias } from "./mockData";
+import { getEconomicCalendar } from "./calendarService";
 
 export async function buildMarketContext(): Promise<string> {
   try {
@@ -12,7 +13,7 @@ export async function buildMarketContext(): Promise<string> {
       getRealQuote().catch(() => getMockQuote()),
       getRealDailyBias().catch(() => getMockDailyBias()),
     ]);
-    const events = getMockEconomicCalendar();
+    const events = getEconomicCalendar();
     const now = new Date();
     const utcHour = now.getUTCHours();
     const utcMin = now.getUTCMinutes();
@@ -24,11 +25,10 @@ export async function buildMarketContext(): Promise<string> {
     // 判断是否接近整点（最后10分钟）
     const nearHourEnd = utcMin >= 50;
     // 判断是否接近数据发布
-    const highImpactEvents = events.filter((e) => e.importance === "high");
+    const highImpactEvents = events.filter((e) => e.impact === "high");
     const nearDataRelease = highImpactEvents.some((e) => {
-      const eventHour = parseInt(e.time.split("T")[1]?.slice(0, 2) ?? "99");
-      const eventMin = parseInt(e.time.split("T")[1]?.slice(3, 5) ?? "99");
-      const diffMin = (eventHour - utcHour) * 60 + (eventMin - utcMin);
+      const eventTime = new Date(e.time);
+      const diffMin = (eventTime.getTime() - now.getTime()) / 60000;
       return diffMin >= 0 && diffMin <= 30;
     });
 
@@ -45,11 +45,31 @@ export async function buildMarketContext(): Promise<string> {
     else if (Number(priceInBox) > 80) pricePosition = "箱体上沿附近";
     else if (Number(priceInBox) < 20) pricePosition = "箱体下沿附近";
 
-    const eventLines = events.map((e) => {
+    // 只显示今天和明天的事件
+    const todayStr = now.toISOString().slice(0, 10);
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    const todayEvents = events.filter((e) => e.time.startsWith(todayStr));
+    const tomorrowEvents = events.filter((e) => e.time.startsWith(tomorrowStr));
+
+    const formatEventLine = (e: typeof events[0]) => {
       const timeStr = e.time.split("T")[1]?.slice(0, 5) ?? "";
-      const impactIcon = e.importance === "high" ? "🔴" : e.importance === "medium" ? "🟡" : "⚪";
+      const impactIcon = e.impact === "high" ? "🔴" : e.impact === "medium" ? "🟡" : "⚪";
       return `${impactIcon} ${timeStr} ${e.name}${e.forecast ? ` (预期${e.forecast})` : ""}`;
-    }).join("\n");
+    };
+
+    let eventLines = "";
+    if (todayEvents.length > 0) {
+      eventLines += "今日:\n" + todayEvents.map(formatEventLine).join("\n");
+    }
+    if (tomorrowEvents.length > 0) {
+      if (eventLines) eventLines += "\n";
+      eventLines += "明日:\n" + tomorrowEvents.map(formatEventLine).join("\n");
+    }
+    if (!eventLines) {
+      eventLines = "今日无重要经济数据";
+    }
 
     // 实时风险提醒
     const riskAlerts: string[] = [];

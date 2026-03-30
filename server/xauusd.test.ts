@@ -116,6 +116,7 @@ describe("XAUUSD Agent API", () => {
       expect(event.name).toBeDefined();
       expect(event.time).toBeDefined();
       expect(["high", "medium", "low"]).toContain(event.importance);
+      expect(["high", "medium", "low"]).toContain(event.impact);
     });
   });
 

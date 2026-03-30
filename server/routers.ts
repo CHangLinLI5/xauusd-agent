@@ -28,10 +28,12 @@ import {
   NEWS_SUMMARY_PROMPT,
   DAILY_BIAS_PROMPT,
 } from "./prompts";
-import { getMockNews, getMockEconomicCalendar, getMockQuote, getMockDailyBias } from "./mockData";
+import { getMockQuote, getMockDailyBias } from "./mockData";
 import { getRealQuote, getRealDailyBias } from "./marketData";
 import { buildMarketContext } from "./marketContext";
 import { storagePut } from "./storage";
+import { getGoldNews } from "./newsService";
+import { getEconomicCalendar } from "./calendarService";
 import { TRPCError } from "@trpc/server";
 import type { Message } from "./_core/llm";
 
@@ -189,12 +191,12 @@ export const appRouter = router({
         biasData = getMockDailyBias();
       }
 
-      const events = getMockEconomicCalendar();
+      // 使用动态经济日历
+      const events = getEconomicCalendar();
       const eventsSummary = events
         .map((e) => {
           const timeStr = e.time.split("T")[1]?.slice(0, 5) ?? "";
-          const impactLabel = e.importance === "high" ? "高影响" : e.importance === "medium" ? "中影响" : "低影响";
-          return `- ${timeStr} UTC ${e.name}（${impactLabel}）${e.forecast ? `预期: ${e.forecast}` : ""} ${e.previous ? `前值: ${e.previous}` : ""}`;
+          return `- ${timeStr} UTC ${e.name}（${e.impactLabel}影响）${e.forecast ? `预期: ${e.forecast}` : ""} ${e.previous ? `前值: ${e.previous}` : ""}`;
         })
         .join("\n");
 
@@ -218,8 +220,8 @@ export const appRouter = router({
         "**盘面状态**:",
         `- 亚盘: ${biasData.sessions.asia} | 欧盘: ${biasData.sessions.europe} | 美盘: ${biasData.sessions.us}`,
         "",
-        "**今日经济日历**:",
-        eventsSummary,
+        "**本周经济日历**:",
+        eventsSummary || "暂无重要数据",
       ].join("\n");
 
       const messages: Message[] = [
@@ -269,8 +271,21 @@ export const appRouter = router({
         return getMockQuote();
       }
     }),
-    news: publicProcedure.query(() => getMockNews()),
-    calendar: publicProcedure.query(() => getMockEconomicCalendar()),
+
+    news: publicProcedure.query(async () => {
+      try {
+        return await getGoldNews();
+      } catch (error) {
+        console.error("[Market] News fetch failed:", error);
+        const { getMockNews } = await import("./mockData");
+        return getMockNews();
+      }
+    }),
+
+    calendar: publicProcedure.query(() => {
+      return getEconomicCalendar();
+    }),
+
     dailyBias: publicProcedure.query(async () => {
       try {
         return await getRealDailyBias();
@@ -287,12 +302,13 @@ export const appRouter = router({
       } catch {
         quote = getMockQuote();
       }
-      const events = getMockEconomicCalendar();
+      const events = getEconomicCalendar();
+      const highImpactCount = events.filter((e) => e.impact === "high").length;
       const messages: Message[] = [
         { role: "system", content: DAILY_BIAS_PROMPT },
         {
           role: "user",
-          content: `当前XAUUSD价格：${quote.price}，今日涨跌：${quote.change}(${quote.changePercent}%)。\n今日有${events.filter((e) => e.importance === "high").length}个高影响数据。\n请给出今日市场偏向判断。`,
+          content: `当前XAUUSD价格：${quote.price}，今日涨跌：${quote.change}(${quote.changePercent}%)。\n今日有${highImpactCount}个高影响数据。\n请给出今日市场偏向判断。`,
         },
       ];
       const result = await invokeCustomLLM({ messages, maxTokens: 1024, temperature: 0.3 });
@@ -307,7 +323,18 @@ export const appRouter = router({
     newsSummary: protectedProcedure
       .input(z.object({ newsId: z.string() }))
       .mutation(async ({ input }) => {
-        const news = getMockNews().find((n) => n.id === input.newsId);
+        // Try real news first, then mock
+        let news;
+        try {
+          const allNews = await getGoldNews();
+          news = allNews.find((n) => n.id === input.newsId);
+        } catch {
+          // ignore
+        }
+        if (!news) {
+          const { getMockNews } = await import("./mockData");
+          news = getMockNews().find((n) => n.id === input.newsId);
+        }
         if (!news) throw new TRPCError({ code: "NOT_FOUND" });
         const messages: Message[] = [
           { role: "system", content: NEWS_SUMMARY_PROMPT },

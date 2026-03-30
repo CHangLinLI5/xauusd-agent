@@ -16,6 +16,10 @@ import {
   memDeleteChatSession,
   memAddChatMessage,
   memGetSessionMessages,
+  memCreateChartAnalysis,
+  memUpdateChartAnalysis,
+  memGetUserChartAnalyses,
+  memGetChartAnalysisById,
   memCreateTradingPlan,
   memGetTodayPlan,
   memGetUserTradingPlans,
@@ -26,7 +30,6 @@ import {
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -106,7 +109,6 @@ export async function getUserByOpenId(openId: string) {
   }
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -115,7 +117,6 @@ export async function getUserByOpenId(openId: string) {
 export async function createChatSession(userId: number, title?: string) {
   const db = await getDb();
   if (!db) {
-    // Use in-memory fallback
     return memCreateChatSession(userId, title);
   }
   const result = await db.insert(chatSessions).values({
@@ -168,11 +169,14 @@ export async function getSessionMessages(sessionId: number) {
     .orderBy(chatMessages.createdAt);
 }
 
-// ========== Chart Analyses ==========
+// ========== Chart Analyses (with memory fallback) ==========
 
 export async function createChartAnalysis(userId: number, imageUrl: string, imageKey: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    // Use in-memory fallback instead of throwing
+    return memCreateChartAnalysis(userId, imageUrl, imageKey);
+  }
   const result = await db.insert(chartAnalyses).values({
     userId,
     imageUrl,
@@ -193,13 +197,17 @@ export async function updateChartAnalysis(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    // Use in-memory fallback instead of throwing
+    memUpdateChartAnalysis(id, data);
+    return;
+  }
   await db.update(chartAnalyses).set(data).where(eq(chartAnalyses.id, id));
 }
 
 export async function getUserChartAnalyses(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memGetUserChartAnalyses(userId);
   return db
     .select()
     .from(chartAnalyses)
@@ -209,7 +217,7 @@ export async function getUserChartAnalyses(userId: number) {
 
 export async function getChartAnalysisById(id: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return memGetChartAnalysisById(id);
   const result = await db.select().from(chartAnalyses).where(eq(chartAnalyses.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -219,7 +227,6 @@ export async function getChartAnalysisById(id: number) {
 export async function createTradingPlan(userId: number, planDate: string, content: string, marketType?: string, bias?: string) {
   const db = await getDb();
   if (!db) {
-    // Use in-memory fallback instead of throwing
     return memCreateTradingPlan(userId, planDate, content, marketType, bias);
   }
   const result = await db.insert(tradingPlans).values({
