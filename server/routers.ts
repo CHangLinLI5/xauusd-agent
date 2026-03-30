@@ -32,7 +32,7 @@ import {
 import { getMockQuote, getMockDailyBias } from "./mockData";
 import { getRealQuote, getRealDailyBias } from "./marketData";
 import { buildMarketContext } from "./marketContext";
-import { storagePut } from "./storage";
+import { storagePut, storagePutWithBase64, getLocalFileAsDataUrl } from "./storage";
 import { getGoldNews } from "./newsService";
 import { getEconomicCalendar } from "./calendarService";
 import { TRPCError } from "@trpc/server";
@@ -136,9 +136,10 @@ export const appRouter = router({
         const buffer = Buffer.from(input.imageBase64, "base64");
         const ext = input.mimeType.includes("png") ? "png" : "jpg";
         const key = `charts/${ctx.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-        const { url } = await storagePut(key, buffer, input.mimeType);
+        const { url, dataUrl } = await storagePutWithBase64(key, buffer, input.mimeType);
         const { id } = await createChartAnalysis(ctx.user.id, url, key);
-        analyzeChart(id, url).catch((err) =>
+        // Use base64 data URL for LLM analysis (works regardless of server accessibility)
+        analyzeChart(id, dataUrl).catch((err) =>
           console.error("[ChartAnalysis] Background analysis failed:", err)
         );
         return { id, imageUrl: url };
@@ -150,13 +151,24 @@ export const appRouter = router({
         const analysis = await getChartAnalysisById(input.id);
         if (!analysis) throw new TRPCError({ code: "NOT_FOUND" });
         await updateChartAnalysis(input.id, { status: "analyzing" });
+
+        // Try to get base64 data URL for LLM (local files can't be accessed by external LLM)
+        let imageUrlForLlm = analysis.imageUrl;
+        if (imageUrlForLlm.startsWith("/uploads/")) {
+          const mimeType = imageUrlForLlm.endsWith(".png") ? "image/png" : "image/jpeg";
+          const dataUrl = getLocalFileAsDataUrl(analysis.imageKey, mimeType);
+          if (dataUrl) {
+            imageUrlForLlm = dataUrl;
+          }
+        }
+
         const messages: Message[] = [
           { role: "system", content: CHART_ANALYSIS_PROMPT },
           { role: "user", content: "请分析这张XAUUSD交易图表，识别所有关键形态、支撑阻力位和交易信号。" },
         ];
         const result = await invokeCustomLLMWithImage({
           messages,
-          imageUrl: analysis.imageUrl,
+          imageUrl: imageUrlForLlm,
           maxTokens: 4096,
           temperature: 0.5,
         });
@@ -365,6 +377,9 @@ export type AppRouter = typeof appRouter;
 async function analyzeChart(analysisId: number, imageUrl: string) {
   try {
     await updateChartAnalysis(analysisId, { status: "analyzing" });
+
+    // imageUrl may be a base64 data URL or an external URL
+    // Both are supported by the LLM Vision API
     const messages: Message[] = [
       { role: "system", content: CHART_ANALYSIS_PROMPT },
       { role: "user", content: "请分析这张XAUUSD交易图表，识别所有关键形态、支撑阻力位和交易信号。" },
