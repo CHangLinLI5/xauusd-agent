@@ -38,6 +38,9 @@ import { getEconomicCalendar } from "./calendarService";
 import { TRPCError } from "@trpc/server";
 import type { Message } from "./_core/llm";
 
+// Temporary in-memory cache for base64 data URLs (used between upload and analyze)
+const chartDataUrlCache = new Map<number, string>();
+
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
   return next({ ctx });
@@ -138,9 +141,10 @@ export const appRouter = router({
         const key = `charts/${ctx.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const { url, dataUrl } = await storagePutWithBase64(key, buffer, input.mimeType);
         const { id } = await createChartAnalysis(ctx.user.id, url, key);
-        // Store the base64 data URL so chart.analyze can use it directly
-        // Do NOT start background analysis here - let the client call chart.analyze
-        await updateChartAnalysis(id, { analysisResult: dataUrl, status: "pending" });
+        // Cache the base64 data URL in memory for the upcoming analyze call
+        chartDataUrlCache.set(id, dataUrl);
+        // Auto-expire cache after 10 minutes
+        setTimeout(() => chartDataUrlCache.delete(id), 10 * 60 * 1000);
         return { id, imageUrl: url };
       }),
 
@@ -152,12 +156,14 @@ export const appRouter = router({
         await updateChartAnalysis(input.id, { status: "analyzing" });
 
         // Get the image URL for LLM vision analysis
-        // Priority: stored base64 data URL > reconstruct from local file > original URL
+        // Priority: in-memory cached data URL > reconstruct from local file > original URL
         let imageUrlForLlm = analysis.imageUrl;
 
-        // Check if we have a stored base64 data URL from upload (stored in analysisResult temporarily)
-        if (analysis.analysisResult && analysis.analysisResult.startsWith("data:")) {
-          imageUrlForLlm = analysis.analysisResult;
+        // Check in-memory cache first (from recent upload)
+        const cachedDataUrl = chartDataUrlCache.get(input.id);
+        if (cachedDataUrl) {
+          imageUrlForLlm = cachedDataUrl;
+          chartDataUrlCache.delete(input.id); // Clean up after use
         } else if (imageUrlForLlm.startsWith("/uploads/")) {
           const mimeType = imageUrlForLlm.endsWith(".png") ? "image/png" : "image/jpeg";
           const dataUrl = getLocalFileAsDataUrl(analysis.imageKey, mimeType);

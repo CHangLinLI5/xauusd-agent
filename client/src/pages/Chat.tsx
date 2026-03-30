@@ -17,7 +17,6 @@ import {
   ChevronLeft,
   Sparkles,
   History,
-  Bot,
   User,
   TrendingUp,
   TrendingDown,
@@ -462,8 +461,8 @@ export default function Chat() {
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center mb-5">
-          <Bot className="w-8 h-8 text-gold" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gold/30 via-gold/15 to-gold/5 flex items-center justify-center mb-5 border border-gold/25 shadow-[0_0_20px_rgba(240,192,64,0.12)]">
+          <span className="text-gradient-gold text-xl font-extrabold tracking-tight">Au</span>
         </div>
         <h2 className="text-xl font-bold mb-2">XAUUSD AI Agent</h2>
         <p className="text-sm text-muted-foreground text-center mb-6 max-w-[280px] leading-relaxed">
@@ -498,8 +497,8 @@ export default function Chat() {
     return (
       <div key={msg.id} className="py-4">
         <div className="flex items-start gap-3">
-          <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0 mt-0.5">
-            <Bot className="w-3.5 h-3.5 text-gold" />
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center shrink-0 mt-0.5 border border-gold/15">
+            <span className="text-gradient-gold text-[9px] font-extrabold tracking-tight">Au</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[13.5px] prose prose-invert prose-sm max-w-none leading-relaxed [&_h1]:text-gold [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:text-gold [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h3]:text-gold/90 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_strong]:text-gold/90 [&_code]:text-cyan [&_code]:bg-surface/50 [&_code]:px-1 [&_code]:rounded [&_table]:text-[12px] [&_table]:border-collapse [&_th]:bg-surface/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-gold/80 [&_th]:font-semibold [&_th]:text-left [&_th]:border [&_th]:border-border/20 [&_td]:px-2 [&_td]:py-1 [&_td]:border [&_td]:border-border/15 [&_hr]:border-border/15 [&_hr]:my-3 [&_blockquote]:border-l-gold/30 [&_blockquote]:bg-gold/5 [&_blockquote]:px-3 [&_blockquote]:py-1.5 [&_blockquote]:rounded-r-lg [&_ul]:space-y-1 [&_ol]:space-y-1 [&_li]:text-foreground/85 [&_p]:text-foreground/90 [&_p]:leading-relaxed">
@@ -702,8 +701,8 @@ export default function Chat() {
       {isCurrentSessionLoading && (
         <div className="py-4">
           <div className="flex items-start gap-3">
-            <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
-              <Bot className="w-3.5 h-3.5 text-gold" />
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center shrink-0 border border-gold/15">
+              <span className="text-gradient-gold text-[9px] font-extrabold tracking-tight">Au</span>
             </div>
             <AgentThinking elapsedMs={thinkingElapsed} />
           </div>
@@ -724,8 +723,8 @@ export default function Chat() {
           <MarketContextBar />
           {/* Chat header */}
           <div className="flex items-center gap-2 px-5 py-2 border-b border-border/10 bg-background/30">
-            <div className="w-6 h-6 rounded-md bg-gold/10 flex items-center justify-center">
-              <Bot className="w-3.5 h-3.5 text-gold" />
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center border border-gold/15">
+              <span className="text-gradient-gold text-[8px] font-extrabold tracking-tight">Au</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold truncate">
@@ -835,8 +834,8 @@ export default function Chat() {
           <ChevronLeft className="w-4 h-4" />
         </Button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="w-6 h-6 rounded-md bg-gold/10 flex items-center justify-center">
-            <Bot className="w-3 h-3 text-gold" />
+          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-gold/20 to-gold/5 flex items-center justify-center border border-gold/15">
+            <span className="text-gradient-gold text-[8px] font-extrabold tracking-tight">Au</span>
           </div>
           <div className="text-sm font-semibold truncate">
             {sessions?.find((s) => s.id === activeSessionId)?.title ?? "XAUUSD Agent"}
