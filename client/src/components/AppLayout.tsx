@@ -35,8 +35,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const shouldFallback = !ws.isConnected && !ws.quote;
   const { data: fallbackQuote } = trpc.market.quote.useQuery(undefined, {
     enabled: shouldFallback,
-    refetchInterval: shouldFallback ? 15000 : false,
-    staleTime: 10000,
+    refetchInterval: shouldFallback ? 5000 : false,
+    staleTime: 3000,
   });
 
   const quote = ws.quote ?? fallbackQuote;

@@ -21,9 +21,11 @@ const CATEGORIES = [
   { key: "美联储", icon: Radio },
   { key: "CPI", icon: TrendingUp },
   { key: "非农", icon: Zap },
+  { key: "央行购金", icon: TrendingUp },
   { key: "地缘政治", icon: Globe },
   { key: "美元指数", icon: TrendingDown },
   { key: "美债", icon: Minus },
+  { key: "机构观点", icon: Zap },
 ];
 
 export default function News() {

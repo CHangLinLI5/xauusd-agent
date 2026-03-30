@@ -41,12 +41,14 @@ interface BiasData {
 }
 
 interface CalendarEvent {
+  id: string;
   time: string;
-  event: string;
+  name: string;
   importance: string;
   forecast?: string;
   previous?: string;
   actual?: string;
+  currency: string;
 }
 
 interface NewsItem {
@@ -56,9 +58,10 @@ interface NewsItem {
   source: string;
   category: string;
   impact: string;
-  impactDirection: string;
+  impactLabel: string;
+  rhythm: string;
+  content: string;
   publishedAt: string;
-  tradingImpact: string;
 }
 
 export interface MarketSnapshot {
@@ -139,6 +142,8 @@ export function useMarketSocket(): UseMarketSocketReturn {
     socket.on("connect", () => {
       console.log("[WS] Connected to market feed");
       setStatus("connected");
+      // Request fresh snapshot on initial connect
+      socket.emit("market:requestSnapshot");
     });
 
     socket.on("disconnect", (reason) => {

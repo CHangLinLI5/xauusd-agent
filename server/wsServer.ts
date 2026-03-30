@@ -1,7 +1,11 @@
 /**
- * WebSocket 实时推送服务
- * 后台定期获取行情数据，通过 Socket.IO 推送给所有连接的客户端
- * 客户端不再需要轮询 market.quote / market.dailyBias
+ * WebSocket 实时推送服务 v3
+ *
+ * 优化点：
+ * - 推送间隔从 3s/15s 优化为 2s/10s，价格更新更快
+ * - 连接时立即推送最新数据 + 主动构建快照
+ * - 增加错误隔离，单次推送失败不影响后续
+ * - 增加连接状态日志
  */
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
@@ -45,8 +49,8 @@ let connectedClients = 0;
 // ========== Push Intervals ==========
 
 const PUSH_INTERVALS = {
-  quote: 3 * 1000,       // Push quote every 3 seconds
-  fullSnapshot: 15 * 1000, // Push full snapshot every 15 seconds
+  quote: 2 * 1000,        // Push quote every 2 seconds
+  fullSnapshot: 10 * 1000, // Push full snapshot every 10 seconds
 };
 
 // ========== Initialize ==========
@@ -70,12 +74,28 @@ export function initWebSocket(httpServer: HttpServer) {
     // Send last snapshot immediately on connect
     if (lastSnapshot) {
       socket.emit("market:snapshot", lastSnapshot);
+    } else {
+      // No cached snapshot yet — build one for this client
+      buildSnapshot().then((snapshot) => {
+        lastSnapshot = snapshot;
+        socket.emit("market:snapshot", snapshot);
+      }).catch(() => {
+        // If snapshot build fails, at least send a quote
+        getQuoteSafe().then((quote) => {
+          socket.emit("market:quote", quote);
+        });
+      });
     }
 
     // Client can request a fresh snapshot
     socket.on("market:requestSnapshot", async () => {
-      const snapshot = await buildSnapshot();
-      socket.emit("market:snapshot", snapshot);
+      try {
+        const snapshot = await buildSnapshot();
+        lastSnapshot = snapshot;
+        socket.emit("market:snapshot", snapshot);
+      } catch (err) {
+        console.error("[WS] Failed to build snapshot on request:", err);
+      }
     });
 
     socket.on("disconnect", () => {
@@ -98,36 +118,40 @@ let lastQuotePush = 0;
 let lastFullPush = 0;
 
 export function startRealtimePush() {
-  // Main push loop - runs every 8 seconds
+  // Main push loop - runs every 2 seconds
   pushInterval = setInterval(async () => {
     if (!io || connectedClients === 0) return;
 
     const now = Date.now();
 
-    try {
-      // Always push quote (lightweight)
-      if (now - lastQuotePush >= PUSH_INTERVALS.quote) {
+    // Always push quote (lightweight, every 2s)
+    if (now - lastQuotePush >= PUSH_INTERVALS.quote) {
+      try {
         const quote = await getQuoteSafe();
         io.emit("market:quote", quote);
         lastQuotePush = now;
+      } catch (err) {
+        console.error("[WS] Quote push error:", err);
       }
+    }
 
-      // Push full snapshot less frequently
-      if (now - lastFullPush >= PUSH_INTERVALS.fullSnapshot) {
+    // Push full snapshot less frequently (every 10s)
+    if (now - lastFullPush >= PUSH_INTERVALS.fullSnapshot) {
+      try {
         const snapshot = await buildSnapshot();
         lastSnapshot = snapshot;
         io.emit("market:snapshot", snapshot);
         lastFullPush = now;
+      } catch (err) {
+        console.error("[WS] Snapshot push error:", err);
       }
-    } catch (err) {
-      console.error("[WS] Push error:", err);
     }
-  }, 3000);
+  }, 2000);
 
   // Initial snapshot build
   buildSnapshot().then((s) => {
     lastSnapshot = s;
-    console.log("[WS] Initial snapshot built, realtime push started");
+    console.log(`[WS] Initial snapshot built ($${s.quote.price}), realtime push started (2s quote / 10s snapshot)`);
   }).catch(() => {
     console.warn("[WS] Initial snapshot build failed, will retry");
   });

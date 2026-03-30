@@ -40,13 +40,13 @@ export default function Home() {
   const shouldFallback = !ws.isConnected && !ws.quote;
   const { data: fallbackQuote } = trpc.market.quote.useQuery(undefined, {
     enabled: shouldFallback,
-    refetchInterval: shouldFallback ? 8000 : false,
-    staleTime: 5000,
+    refetchInterval: shouldFallback ? 3000 : false,
+    staleTime: 2000,
   });
   const { data: fallbackBias } = trpc.market.dailyBias.useQuery(undefined, {
     enabled: shouldFallback,
-    refetchInterval: shouldFallback ? 30000 : false,
-    staleTime: 20000,
+    refetchInterval: shouldFallback ? 10000 : false,
+    staleTime: 8000,
   });
   const { data: fallbackCalendar } = trpc.market.calendar.useQuery(undefined, {
     enabled: shouldFallback,

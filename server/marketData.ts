@@ -1,13 +1,16 @@
 /**
- * XAUUSD 现货黄金行情数据模块
+ * XAUUSD 现货黄金行情数据模块 v3
  *
- * 数据源策略（多源融合 + 优雅降级）：
- * 1. 主数据源：fawazahmed0 Currency API — 免费、无需 API Key、提供真实 XAU/USD 现货汇率
- * 2. 辅助数据源：YahooFinance GC=F（COMEX 黄金期货）— 提供日内 OHLCV 和多周期 K 线数据
+ * 数据源策略（多源融合 + 快速降级）：
+ * 1. 主数据源：YahooFinance GC=F 1m/1d — 提供准实时 COMEX 黄金期货价格 + 日内 OHLCV
+ * 2. 备用数据源：YahooFinance GC=F 直连 — 绕过代理网关
+ * 3. 降级数据源：fawazahmed0 Currency API — 免费日级别现货汇率（仅作最后兜底）
  *
- * 降级策略：
- * - 当 GC=F 不可用（限速等）时，仅用现货价格也能返回有效报价
- * - 关键位和 Bias 在无 GC=F 数据时使用基于现货价格的估算值
+ * 优化点：
+ * - 缓存 TTL 从 5s 降至 2s，确保价格刷新更快
+ * - 后台预热间隔从 30s 降至 10s
+ * - 增加请求超时控制（5s），避免单次请求阻塞
+ * - 1m 级别数据替代 1d 级别，获取更精确的日内 OHLC
  */
 import { callDataApi } from "./_core/dataApi";
 import type { MarketQuote } from "./mockData";
@@ -90,23 +93,82 @@ const cache: {
   monthlyData?: CacheEntry<YahooChartResult>;
   intradayData?: CacheEntry<YahooChartResult>;
   dailyBias?: CacheEntry<DailyBiasData>;
+  realtimeData?: CacheEntry<YahooChartResult>;
 } = {};
 
 const CACHE_TTL = {
-  quote: 5 * 1000,            // 5 seconds for real-time quote
-  spotPrice: 60 * 1000,       // 1 minute for spot price
-  intraday: 2 * 60 * 1000,    // 2 minutes for intraday data
-  daily: 10 * 60 * 1000,      // 10 minutes for daily data
-  weekly: 60 * 60 * 1000,     // 1 hour for weekly data
+  quote: 2 * 1000,             // 2 seconds — near real-time
+  spotPrice: 60 * 1000,        // 1 minute for spot price (daily rate, no need to refresh often)
+  realtime: 3 * 1000,          // 3 seconds for 1m candle data
+  intraday: 2 * 60 * 1000,     // 2 minutes for 15m candle data
+  daily: 10 * 60 * 1000,       // 10 minutes for daily data
+  weekly: 60 * 60 * 1000,      // 1 hour for weekly data
   monthly: 2 * 60 * 60 * 1000, // 2 hours for monthly data
-  dailyBias: 30 * 1000,       // 30 seconds for daily bias
+  dailyBias: 15 * 1000,        // 15 seconds for daily bias
 };
 
 function isCacheValid<T>(entry: CacheEntry<T> | undefined, ttl: number): entry is CacheEntry<T> {
   return !!entry && Date.now() - entry.timestamp < ttl;
 }
 
-// ========== Spot Price Source (fawazahmed0 Currency API) ==========
+// ========== Fetch with Timeout ==========
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs: number = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ========== Source 1: Yahoo Finance via Manus Data API ==========
+
+async function fetchGoldChartViaApi(interval: string, range: string): Promise<YahooChartResult | null> {
+  try {
+    const result = await callDataApi("YahooFinance/get_stock_chart", {
+      query: {
+        symbol: "GC=F",
+        interval,
+        range,
+      },
+    }) as YahooChartResponse;
+
+    if (result?.chart?.result?.[0]) {
+      return result.chart.result[0];
+    }
+    return null;
+  } catch (error) {
+    console.error(`[MarketData] API fetch GC=F (${interval}/${range}) failed:`, error);
+    return null;
+  }
+}
+
+// ========== Source 2: Yahoo Finance Direct ==========
+
+async function fetchGoldChartDirect(interval: string, range: string): Promise<YahooChartResult | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${interval}&range=${range}`;
+    const response = await fetchWithTimeout(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; XAUUSDAgent/1.0)" },
+    }, 5000);
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as YahooChartResponse;
+    if (data?.chart?.result?.[0]) {
+      return data.chart.result[0];
+    }
+    return null;
+  } catch (error) {
+    console.error(`[MarketData] Direct Yahoo GC=F (${interval}/${range}) failed:`, error);
+    return null;
+  }
+}
+
+// ========== Source 3: fawazahmed0 Spot Price (daily rate fallback) ==========
 
 async function fetchSpotGoldPrice(): Promise<number | null> {
   if (isCacheValid(cache.spotPrice, CACHE_TTL.spotPrice)) {
@@ -114,18 +176,13 @@ async function fetchSpotGoldPrice(): Promise<number | null> {
   }
 
   const endpoints = [
-    "https://latest.currency-api.pages.dev/v1/currencies/xau.json",
     "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.min.json",
-    "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json",
+    "https://latest.currency-api.pages.dev/v1/currencies/xau.json",
   ];
 
   for (const url of endpoints) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
+      const response = await fetchWithTimeout(url, {}, 5000);
       if (!response.ok) continue;
 
       const data = await response.json() as { date?: string; xau?: Record<string, number> };
@@ -145,34 +202,32 @@ async function fetchSpotGoldPrice(): Promise<number | null> {
   return cache.spotPrice?.data ?? null;
 }
 
-// ========== GC=F Futures Data (Yahoo Finance) ==========
+// ========== Multi-source Gold Chart Fetch ==========
 
+/**
+ * 多源获取 GC=F 数据：先尝试 Manus API，失败则直连 Yahoo
+ */
 async function fetchGoldChart(interval: string, range: string): Promise<YahooChartResult | null> {
-  try {
-    const result = await callDataApi("YahooFinance/get_stock_chart", {
-      query: {
-        symbol: "GC=F",
-        interval,
-        range,
-      },
-    }) as YahooChartResponse;
+  // Try Manus Data API first (usually faster due to caching)
+  const apiResult = await fetchGoldChartViaApi(interval, range);
+  if (apiResult) return apiResult;
 
-    if (result?.chart?.result?.[0]) {
-      return result.chart.result[0];
-    }
-    return null;
-  } catch (error) {
-    console.error(`[MarketData] Failed to fetch GC=F (${interval}/${range}):`, error);
-    return null;
-  }
+  // Fallback to direct Yahoo Finance
+  console.log(`[MarketData] Manus API failed for GC=F ${interval}/${range}, trying direct Yahoo...`);
+  return await fetchGoldChartDirect(interval, range);
 }
 
-// ========== Price Calibration ==========
+// ========== Real-time 1m Data ==========
 
-function calibrateToSpot(futuresPrice: number, spotPrice: number, futuresRef: number): number {
-  if (futuresRef <= 0 || spotPrice <= 0) return futuresPrice;
-  const ratio = spotPrice / futuresRef;
-  return round2(futuresPrice * ratio);
+async function getRealtimeData(): Promise<YahooChartResult | null> {
+  if (isCacheValid(cache.realtimeData, CACHE_TTL.realtime)) {
+    return cache.realtimeData.data;
+  }
+  const data = await fetchGoldChart("1m", "1d");
+  if (data) {
+    cache.realtimeData = { data, timestamp: Date.now() };
+  }
+  return data;
 }
 
 // ========== Real-time Quote ==========
@@ -182,40 +237,36 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return cache.quote.data;
   }
 
-  // Fetch both spot price and futures data in parallel
-  const [spotPrice, futuresData] = await Promise.all([
-    fetchSpotGoldPrice(),
-    fetchGoldChart("1d", "5d"),
-  ]);
+  // Primary: use 1m candle data for most real-time price
+  const realtimeData = await getRealtimeData();
 
-  // Case 1: Both available — full calibration
-  if (futuresData && spotPrice && spotPrice > 1000) {
-    const meta = futuresData.meta;
-    const quotes = futuresData.indicators.quote[0];
+  if (realtimeData) {
+    const meta = realtimeData.meta;
+    const quotes = realtimeData.indicators.quote[0];
     const closes = quotes.close.filter((c): c is number => c !== null);
-    const futuresPrice = meta.regularMarketPrice;
-    const calibrationRatio = spotPrice / futuresPrice;
+    const opens = quotes.open.filter((o): o is number => o !== null);
+    const highs = quotes.high.filter((h): h is number => h !== null);
+    const lows = quotes.low.filter((l): l is number => l !== null);
 
-    const prevFuturesClose = closes.length >= 2 ? closes[closes.length - 2]! : meta.chartPreviousClose;
-    const prevClose = round2(prevFuturesClose * calibrationRatio);
-    const change = spotPrice - prevClose;
+    // Use the latest available price
+    const price = meta.regularMarketPrice;
+    const prevClose = meta.chartPreviousClose;
+    const change = price - prevClose;
     const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
-    const high = calibrateToSpot(meta.regularMarketDayHigh, spotPrice, futuresPrice);
-    const low = calibrateToSpot(meta.regularMarketDayLow, spotPrice, futuresPrice);
-
-    const opens = quotes.open.filter((o): o is number => o !== null);
-    const rawOpen = opens.length > 0 ? opens[opens.length - 1]! : futuresPrice;
-    const open = calibrateToSpot(rawOpen, spotPrice, futuresPrice);
+    // Calculate today's OHLC from 1m candles for accuracy
+    const todayOpen = opens.length > 0 ? opens[0]! : price;
+    const todayHigh = highs.length > 0 ? Math.max(meta.regularMarketDayHigh, ...highs) : meta.regularMarketDayHigh;
+    const todayLow = lows.length > 0 ? Math.min(...lows.filter(l => l > 1000), meta.regularMarketDayLow) : meta.regularMarketDayLow;
 
     const quoteData: MarketQuote = {
       symbol: "XAUUSD",
-      price: round2(spotPrice),
+      price: round2(price),
       change: round2(change),
       changePercent: round2(changePercent),
-      high: round2(high),
-      low: round2(low),
-      open: round2(open),
+      high: round2(todayHigh),
+      low: round2(todayLow > 1000 ? todayLow : price),
+      open: round2(todayOpen),
       timestamp: new Date(meta.regularMarketTime * 1000).toISOString(),
     };
 
@@ -223,31 +274,11 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return quoteData;
   }
 
-  // Case 2: Only spot price available (GC=F rate limited)
-  if (spotPrice && spotPrice > 1000) {
-    // Use spot price as the main price, estimate OHLC based on typical daily range (~0.5-1%)
-    const typicalRange = spotPrice * 0.005; // 0.5% typical daily range
-    const prevQuote = (cache as { quote?: CacheEntry<MarketQuote> }).quote?.data;
-
-    const quoteData: MarketQuote = {
-      symbol: "XAUUSD",
-      price: round2(spotPrice),
-      change: prevQuote ? round2(spotPrice - prevQuote.open) : 0,
-      changePercent: prevQuote && prevQuote.open > 0 ? round2(((spotPrice - prevQuote.open) / prevQuote.open) * 100) : 0,
-      high: prevQuote?.high && prevQuote.high > spotPrice ? round2(prevQuote.high) : round2(spotPrice + typicalRange * 0.3),
-      low: prevQuote?.low && prevQuote.low < spotPrice && prevQuote.low > 1000 ? round2(prevQuote.low) : round2(spotPrice - typicalRange * 0.7),
-      open: prevQuote?.open && prevQuote.open > 1000 ? round2(prevQuote.open) : round2(spotPrice),
-      timestamp: new Date().toISOString(),
-    };
-
-    cache.quote = { data: quoteData, timestamp: Date.now() };
-    return quoteData;
-  }
-
-  // Case 3: Only futures data available (fawazahmed0 failed)
-  if (futuresData) {
-    const meta = futuresData.meta;
-    const quotes = futuresData.indicators.quote[0];
+  // Fallback: try daily data
+  const dailyData = await fetchGoldChart("1d", "5d");
+  if (dailyData) {
+    const meta = dailyData.meta;
+    const quotes = dailyData.indicators.quote[0];
     const closes = quotes.close.filter((c): c is number => c !== null);
     const prevClose = closes.length >= 2 ? closes[closes.length - 2]! : meta.chartPreviousClose;
     const change = meta.regularMarketPrice - prevClose;
@@ -271,8 +302,27 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return quoteData;
   }
 
-  // Case 4: Both failed — return cached or throw
-  const cachedQuote = (cache as { quote?: CacheEntry<MarketQuote> }).quote;
+  // Last resort: fawazahmed0 spot price
+  const spotPrice = await fetchSpotGoldPrice();
+  if (spotPrice && spotPrice > 1000) {
+    const prevQuote = (cache.quote as CacheEntry<MarketQuote> | undefined)?.data;
+    const quoteData: MarketQuote = {
+      symbol: "XAUUSD",
+      price: round2(spotPrice),
+      change: prevQuote ? round2(spotPrice - prevQuote.open) : 0,
+      changePercent: prevQuote && prevQuote.open > 0 ? round2(((spotPrice - prevQuote.open) / prevQuote.open) * 100) : 0,
+      high: prevQuote?.high && prevQuote.high > spotPrice ? round2(prevQuote.high) : round2(spotPrice),
+      low: prevQuote?.low && prevQuote.low < spotPrice && prevQuote.low > 1000 ? round2(prevQuote.low) : round2(spotPrice),
+      open: prevQuote?.open && prevQuote.open > 1000 ? round2(prevQuote.open) : round2(spotPrice),
+      timestamp: new Date().toISOString(),
+    };
+
+    cache.quote = { data: quoteData, timestamp: Date.now() };
+    return quoteData;
+  }
+
+  // Absolute last resort: return cached
+  const cachedQuote = (cache.quote as CacheEntry<MarketQuote> | undefined);
   if (cachedQuote?.data) {
     return cachedQuote.data;
   }
@@ -315,24 +365,8 @@ async function getWeeklyData(): Promise<YahooChartResult | null> {
 }
 
 /**
- * 获取现货/期货校准比率
- */
-async function getCalibrationRatio(): Promise<number> {
-  const spotPrice = await fetchSpotGoldPrice();
-  if (!spotPrice || spotPrice <= 1000) return 1;
-
-  const futuresData = cache.dailyData?.data ?? await fetchGoldChart("1d", "5d");
-  if (!futuresData) return 1;
-
-  const futuresPrice = futuresData.meta.regularMarketPrice;
-  if (futuresPrice <= 1000) return 1;
-
-  return spotPrice / futuresPrice;
-}
-
-/**
  * 计算关键位
- * 基于多周期数据计算支撑阻力位和箱体，并校准到现货价格
+ * 基于多周期数据计算支撑阻力位和箱体
  * 当 GC=F 不可用时，基于现货价格生成估算关键位
  */
 export async function calculateKeyLevels(): Promise<KeyLevels> {
@@ -343,38 +377,34 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
 
   // If we have daily data, use full calculation
   if (dailyData) {
-    const ratio = await getCalibrationRatio();
     const quotes = dailyData.indicators.quote[0];
     const highs = quotes.high.filter((h): h is number => h !== null);
     const lows = quotes.low.filter((l): l is number => l !== null);
     const closes = quotes.close.filter((c): c is number => c !== null);
 
     if (highs.length >= 5 && lows.length >= 5) {
-      const recentHighs = highs.slice(-10);
-      const recentLows = lows.slice(-10);
-
-      const boxTop = round2(Math.max(...recentHighs.slice(-5)) * ratio);
-      const boxBottom = round2(Math.min(...recentLows.slice(-5)) * ratio);
+      const boxTop = round2(Math.max(...highs.slice(-5)));
+      const boxBottom = round2(Math.min(...lows.slice(-5)));
 
       const lastHigh = highs[highs.length - 1]!;
       const lastLow = lows[lows.length - 1]!;
       const lastClose = closes[closes.length - 1]!;
       const pivot = (lastHigh + lastLow + lastClose) / 3;
 
-      const resistance1 = round2((2 * pivot - lastLow) * ratio);
-      const resistance2 = round2((pivot + (lastHigh - lastLow)) * ratio);
-      const support1 = round2((2 * pivot - lastHigh) * ratio);
-      const support2 = round2((pivot - (lastHigh - lastLow)) * ratio);
+      const resistance1 = round2(2 * pivot - lastLow);
+      const resistance2 = round2(pivot + (lastHigh - lastLow));
+      const support1 = round2(2 * pivot - lastHigh);
+      const support2 = round2(pivot - (lastHigh - lastLow));
 
       // Enhance with intraday data if available
       if (intradayData) {
         const intradayQuotes = intradayData.indicators.quote[0];
         const intradayHighs = intradayQuotes.high.filter((h): h is number => h !== null);
-        const intradayLows = intradayQuotes.low.filter((l): l is number => l !== null);
+        const intradayLows = intradayQuotes.low.filter((l): l is number => l !== null && l > 1000);
 
         if (intradayHighs.length > 0 && intradayLows.length > 0) {
-          const todayHigh = Math.max(...intradayHighs.slice(-20)) * ratio;
-          const todayLow = Math.min(...intradayLows.slice(-20)) * ratio;
+          const todayHigh = Math.max(...intradayHighs.slice(-20));
+          const todayLow = Math.min(...intradayLows.slice(-20));
 
           return {
             resistance1: Math.max(resistance1, round2(todayHigh + (todayHigh - todayLow) * 0.382)),
@@ -391,10 +421,14 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
     }
   }
 
-  // Fallback: estimate key levels from spot price
-  const spotPrice = await fetchSpotGoldPrice();
-  if (spotPrice && spotPrice > 1000) {
-    return estimateKeyLevels(spotPrice);
+  // Fallback: estimate key levels from current price
+  try {
+    const quote = await getRealQuote();
+    if (quote.price > 1000) {
+      return estimateKeyLevels(quote.price);
+    }
+  } catch {
+    // ignore
   }
 
   // Last resort: use cached quote price
@@ -406,8 +440,7 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
 }
 
 /**
- * 基于现货价格估算关键位（当 GC=F 不可用时的降级方案）
- * 使用典型的日内波动幅度来估算
+ * 基于价格估算关键位（当 GC=F 不可用时的降级方案）
  */
 function estimateKeyLevels(price: number): KeyLevels {
   const dailyRange = price * 0.008; // ~0.8% typical daily range for gold
@@ -427,7 +460,6 @@ function estimateKeyLevels(price: number): KeyLevels {
 
 /**
  * 基于真实数据计算今日偏向
- * 当 GC=F 不可用时，基于现货价格和缓存数据给出基本判断
  */
 export async function getRealDailyBias(): Promise<DailyBiasData> {
   if (isCacheValid(cache.dailyBias, CACHE_TTL.dailyBias)) {
@@ -448,10 +480,8 @@ export async function getRealDailyBias(): Promise<DailyBiasData> {
   let confidence: "high" | "medium" | "low" = "medium";
 
   if (dailyData) {
-    const ratio = await getCalibrationRatio();
     const closes = dailyData.indicators.quote[0].close
-      .filter((c): c is number => c !== null)
-      .map((c) => c * ratio);
+      .filter((c): c is number => c !== null);
 
     if (closes.length >= 5) {
       const recent5 = closes.slice(-5);
@@ -533,7 +563,7 @@ export async function getRealDailyBias(): Promise<DailyBiasData> {
   const changeDir = quote && quote.change >= 0 ? "上涨" : "下跌";
   const changeAbs = quote ? Math.abs(quote.change).toFixed(2) : "0.00";
   const changePctAbs = quote ? Math.abs(quote.changePercent).toFixed(2) : "0.00";
-  const summary = `XAUUSD 现货 ${price.toFixed(2)}，日内${changeDir} ${changeAbs} (${changePctAbs}%)。` +
+  const summary = `XAUUSD ${price.toFixed(2)}，日内${changeDir} ${changeAbs} (${changePctAbs}%)。` +
     `箱体区间 ${keyLevels.boxBottom.toFixed(0)}-${keyLevels.boxTop.toFixed(0)}，` +
     `${bias === "bullish" ? "关注上方阻力 " + keyLevels.resistance1.toFixed(0) + " 突破情况" :
       bias === "bearish" ? "关注下方支撑 " + keyLevels.support1.toFixed(0) + " 支撑力度" :
@@ -577,40 +607,41 @@ let warmingInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * 后台预热缓存：服务器启动时预加载数据，并定期后台刷新
- * 分阶段预热：先加载现货价格（快速），再加载 GC=F 数据（可能慢/限速）
+ * v3: 缩短预热间隔至 10s，优先加载 1m 实时数据
  */
 export function startCacheWarming() {
-  // Immediate warm-up: spot price first (fast and reliable)
-  fetchSpotGoldPrice().then(() => {
-    console.log("[MarketData] Spot price pre-loaded");
-    // Then try GC=F data (may be rate limited)
-    getRealQuote().catch(() => console.log("[MarketData] Initial GC=F fetch failed, will retry"));
-  });
+  // Immediate warm-up: fetch real-time quote first
+  getRealQuote()
+    .then((q) => console.log(`[MarketData] Initial quote: $${q.price}`))
+    .catch(() => console.log("[MarketData] Initial quote fetch failed, will retry"));
 
-  // Staggered warm-up for daily/intraday data
+  // Staggered warm-up for daily/intraday data (non-blocking)
   setTimeout(() => {
     getDailyData().catch(() => {});
     getIntradayData().catch(() => {});
-  }, 5000);
+  }, 3000);
 
-  // Regular refresh: every 30 seconds (reduced frequency to avoid rate limits)
+  // Regular refresh: every 10 seconds for quote, less often for daily data
   warmingInterval = setInterval(async () => {
     try {
       await getRealQuote();
     } catch {
       // silent
     }
-    // Only refresh daily/intraday if cache expired
+    // Refresh daily/intraday only if cache expired
     try {
       if (!isCacheValid(cache.dailyData, CACHE_TTL.daily)) {
         await getDailyData();
       }
+      if (!isCacheValid(cache.intradayData, CACHE_TTL.intraday)) {
+        await getIntradayData();
+      }
     } catch {
       // silent
     }
-  }, 30 * 1000);
+  }, 10 * 1000);
 
-  console.log("[MarketData] Background cache warming started (30s interval, multi-source with graceful degradation)");
+  console.log("[MarketData] Background cache warming started (10s interval, multi-source with fast degradation)");
 }
 
 export function stopCacheWarming() {
