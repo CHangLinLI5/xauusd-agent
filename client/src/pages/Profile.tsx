@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { formatDateCN, formatDateTimeCN } from "@/lib/timeUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -170,23 +171,17 @@ export default function Profile() {
   if (!user) return null;
 
   const initials = (user.name || "U").slice(0, 2).toUpperCase();
-  const memberSince = user.createdAt ? new Date(user.createdAt).toLocaleDateString("zh-CN", {
+  const memberSince = user.createdAt ? formatDateCN(user.createdAt, {
     year: "numeric",
     month: "long",
     day: "numeric",
   }) : "未知";
-  const lastLogin = user.lastSignedIn ? new Date(user.lastSignedIn).toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }) : "未知";
+  const lastLogin = user.lastSignedIn ? formatDateTimeCN(user.lastSignedIn) : "未知";
 
   const sessionOptions = [
-    { value: "asia", label: "亚盘 (00:00-08:00 UTC)" },
-    { value: "europe", label: "欧盘 (07:00-16:00 UTC)" },
-    { value: "us", label: "美盘 (13:00-22:00 UTC)" },
+    { value: "asia", label: "亚盘 (08:00-16:00 北京)" },
+    { value: "europe", label: "欧盘 (15:00-00:00 北京)" },
+    { value: "us", label: "美盘 (21:00-06:00 北京)" },
     { value: "all", label: "全时段" },
   ];
 

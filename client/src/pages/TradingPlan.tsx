@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { getFullDateCN } from "@/lib/timeUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -123,12 +124,7 @@ export default function TradingPlan() {
           <div>
             <h1 className="text-lg font-bold">今日交易计划</h1>
             <p className="text-[10px] text-muted-foreground">
-              {new Date().toLocaleDateString("zh-CN", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                weekday: "long",
-              })}
+              {getFullDateCN()}
             </p>
           </div>
         </div>

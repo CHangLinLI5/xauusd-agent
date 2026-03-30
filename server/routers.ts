@@ -20,6 +20,7 @@ import {
   setConfig,
   getAllConfigs,
 } from "./db";
+import { nowChinaISO, todayChinaDate, formatTimeShortCN as fmtTimeCN } from "./timeUtils";
 import { invokeCustomLLM, invokeCustomLLMWithImage, extractContent } from "./customLlm";
 import {
   XAUUSD_CHAT_SYSTEM_PROMPT,
@@ -86,7 +87,7 @@ export const appRouter = router({
         // 构建增强的系统提示词：基础提示 + 实时数据 + 对话感知指令
         const conversationCount = history.filter((m) => m.role === "user").length;
         const now = new Date();
-        const timeContext = `\n\n---\n**当前时间**: ${now.toISOString()} (UTC)\n**本次对话轮次**: 第${conversationCount}轮\n**对话指引**: ${
+        const timeContext = `\n\n---\n**当前时间**: ${nowChinaISO()} (北京时间)\n**本次对话轮次**: 第${conversationCount}轮\n**对话指引**: ${
           conversationCount === 1
             ? "这是用户的第一个问题，给出全面但简洁的分析。"
             : conversationCount <= 3
@@ -168,14 +169,14 @@ export const appRouter = router({
   // ========== Trading Plan ==========
   plan: router({
     today: protectedProcedure.query(async ({ ctx }) => {
-      const today = new Date().toISOString().split("T")[0];
-      return getTodayPlan(ctx.user.id, today!);
+      const today = todayChinaDate();
+      return getTodayPlan(ctx.user.id, today);
     }),
 
     list: protectedProcedure.query(({ ctx }) => getUserTradingPlans(ctx.user.id)),
 
     generate: protectedProcedure.mutation(async ({ ctx }) => {
-      const today = new Date().toISOString().split("T")[0]!;
+      const today = todayChinaDate();
 
       // 获取完整市场数据
       let quote;
@@ -195,14 +196,15 @@ export const appRouter = router({
       const events = getEconomicCalendar();
       const eventsSummary = events
         .map((e) => {
-          const timeStr = e.time.split("T")[1]?.slice(0, 5) ?? "";
-          return `- ${timeStr} UTC ${e.name}（${e.impactLabel}影响）${e.forecast ? `预期: ${e.forecast}` : ""} ${e.previous ? `前值: ${e.previous}` : ""}`;
+          
+          const timeStrCN = fmtTimeCN(e.time);
+          return `- ${timeStrCN} 北京 ${e.name}（${e.impactLabel}影响）${e.forecast ? `预期: ${e.forecast}` : ""} ${e.previous ? `前值: ${e.previous}` : ""}`;
         })
         .join("\n");
 
       // 构建丰富的市场上下文
       const marketInfo = [
-        `## 当前市场数据（${new Date().toISOString()}）`,
+        `## 当前市场数据（${nowChinaISO()} 北京时间）`,
         "",
         `**XAUUSD 现货价格**: ${quote.price}`,
         `**今日开盘**: ${quote.open} | **最高**: ${quote.high} | **最低**: ${quote.low}`,

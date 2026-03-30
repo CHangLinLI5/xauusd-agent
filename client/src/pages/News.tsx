@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Streamdown } from "streamdown";
 import { useIsMobile } from "@/hooks/useMobile";
+import { formatTimeShortCN } from "@/lib/timeUtils";
 import {
   Newspaper,
   TrendingUp,
@@ -110,10 +111,7 @@ export default function News() {
                       <span className="opacity-40">|</span>
                       <span className="flex items-center gap-0.5">
                         <Clock className="w-3 h-3" />
-                        {new Date(item.publishedAt).toLocaleTimeString("zh-CN", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatTimeShortCN(item.publishedAt)}
                       </span>
                     </div>
 

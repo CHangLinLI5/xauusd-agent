@@ -9,6 +9,7 @@
  * - 连接时立即推送缓存数据
  */
 import { Server as HttpServer } from "http";
+import { nowChinaISO } from "./timeUtils";
 import { Server, Socket } from "socket.io";
 import { getRealQuote, calculateKeyLevels, getRealDailyBias } from "./marketData";
 import { getMockQuote, getMockDailyBias } from "./mockData";
@@ -251,7 +252,7 @@ async function buildSnapshot(): Promise<MarketSnapshot> {
     bias,
     calendar,
     news,
-    serverTime: new Date().toISOString(),
+    serverTime: nowChinaISO(),
   };
 }
 

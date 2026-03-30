@@ -11,6 +11,17 @@ function hasCustomLlm(): boolean {
   return !!(ENV.customLlmApiUrl && ENV.customLlmApiKey);
 }
 
+/**
+ * 获取完整的 API URL（自动补全 /chat/completions）
+ */
+function getApiUrl(): string {
+  let url = ENV.customLlmApiUrl.replace(/\/+$/, "");
+  if (!url.endsWith("/chat/completions")) {
+    url += "/chat/completions";
+  }
+  return url;
+}
+
 export async function invokeCustomLLM(params: {
   messages: Message[];
   maxTokens?: number;
@@ -31,24 +42,41 @@ export async function invokeCustomLLM(params: {
       body.temperature = params.temperature;
     }
 
-    const response = await fetch(ENV.customLlmApiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ENV.customLlmApiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const apiUrl = getApiUrl();
+    console.log(`[CustomLLM] Calling ${apiUrl} with model ${ENV.customLlmModel}`);
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+    
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ENV.customLlmApiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[CustomLLM] API error:", response.status, errorText);
-      // Fallback to built-in LLM
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[CustomLLM] API error:", response.status, errorText);
+        console.log("[CustomLLM] Falling back to built-in LLM");
+        return invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+      }
+
+      const result = (await response.json()) as InvokeResult;
+      console.log(`[CustomLLM] Success, tokens: ${result.usage?.total_tokens ?? "unknown"}`);
+      return result;
+    } catch (err) {
+      clearTimeout(timeout);
+      console.error("[CustomLLM] Fetch error:", err);
       console.log("[CustomLLM] Falling back to built-in LLM");
       return invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
     }
-
-    return (await response.json()) as InvokeResult;
   }
 
   // No custom LLM configured, use built-in
@@ -94,22 +122,37 @@ export async function invokeCustomLLMWithImage(params: {
       body.temperature = params.temperature;
     }
 
-    const response = await fetch(ENV.customLlmApiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ENV.customLlmApiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const apiUrl = getApiUrl();
+    console.log(`[CustomLLM] Vision call to ${apiUrl}`);
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000); // 90s timeout for vision
+    
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ENV.customLlmApiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[CustomLLM] Vision API error:", response.status, errorText);
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[CustomLLM] Vision API error:", response.status, errorText);
+        return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });
+      }
+
+      return (await response.json()) as InvokeResult;
+    } catch (err) {
+      clearTimeout(timeout);
+      console.error("[CustomLLM] Vision fetch error:", err);
       return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });
     }
-
-    return (await response.json()) as InvokeResult;
   }
 
   return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });

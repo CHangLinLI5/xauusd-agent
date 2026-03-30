@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { formatDateTimeCN } from "@/lib/timeUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -140,7 +141,7 @@ export default function ChartAnalysis() {
                     {item.analysisResult?.slice(0, 100) ?? "等待分析..."}
                   </div>
                   <div className="text-[10px] text-muted-foreground mt-1">
-                    {new Date(item.createdAt).toLocaleString("zh-CN")}
+                    {formatDateTimeCN(item.createdAt)}
                   </div>
                 </div>
               </div>

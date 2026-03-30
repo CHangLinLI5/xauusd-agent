@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { formatTimeCN, formatTimeShortCN, getTodayDateCN } from "@/lib/timeUtils";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
@@ -98,16 +99,8 @@ export default function Home() {
     prevPriceRef.current = currentPrice;
   }, [currentPrice]);
 
-  // Format timestamp
-  const formatTime = (ts: string | undefined) => {
-    if (!ts) return "";
-    try {
-      const d = new Date(ts);
-      return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    } catch {
-      return "";
-    }
-  };
+  // Format timestamp (use China timezone)
+  const formatTime = formatTimeCN;
 
   // Responsive container class
   const containerClass = isMobile
@@ -270,7 +263,7 @@ export default function Home() {
                     {bias?.riskLabel ?? "加载中"}
                   </div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
-                    {new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric" })}
+                    {getTodayDateCN()}
                   </div>
                 </div>
               </div>
@@ -394,7 +387,7 @@ export default function Home() {
                       )}
                     </div>
                     <span className="text-xs text-muted-foreground font-mono">
-                      {new Date(event.time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      {formatTimeShortCN(event.time)}
                     </span>
                   </div>
                 )) ?? (
@@ -414,9 +407,9 @@ export default function Home() {
               <div className="px-3 pb-3.5">
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { label: "亚洲盘", time: "00:00-08:00 UTC", status: bias.sessions.asia },
-                    { label: "欧洲盘", time: "07:00-16:00 UTC", status: bias.sessions.europe },
-                    { label: "美洲盘", time: "13:00-22:00 UTC", status: bias.sessions.us },
+                    { label: "亚洲盘", time: "08:00-16:00 北京", status: bias.sessions.asia },
+                    { label: "欧洲盘", time: "15:00-00:00 北京", status: bias.sessions.europe },
+                    { label: "美洲盘", time: "21:00-06:00 北京", status: bias.sessions.us },
                   ].map((s) => (
                     <div key={s.label} className="bg-surface/50 rounded-xl p-3 text-center">
                       <div className="text-[10px] text-muted-foreground mb-1 font-medium">{s.label}</div>

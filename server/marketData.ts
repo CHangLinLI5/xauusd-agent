@@ -680,7 +680,7 @@ export async function getRealDailyBias(): Promise<DailyBiasData> {
     }
   }
 
-  // Determine risk status based on time
+  // Determine risk status based on time (UTC hours, displayed as Beijing time on frontend)
   const now = new Date();
   const utcHour = now.getUTCHours();
   let riskStatus: "tradable" | "cautious" | "no_trade" = "tradable";

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
+import { formatDateCN, formatDateTimeCN } from "@/lib/timeUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -631,7 +632,7 @@ export default function Chat() {
                 <div className="min-w-0">
                   <div className="text-[11px] font-medium truncate">{session.title}</div>
                   <div className="text-[9px] text-muted-foreground/50">
-                    {new Date(session.updatedAt).toLocaleDateString("zh-CN")}
+                    {formatDateCN(session.updatedAt)}
                   </div>
                 </div>
               </div>
@@ -747,7 +748,7 @@ export default function Chat() {
                   <div>
                     <div className="text-sm font-medium">{session.title}</div>
                     <div className="text-[10px] text-muted-foreground">
-                      {new Date(session.updatedAt).toLocaleString("zh-CN")}
+                      {formatDateTimeCN(session.updatedAt)}
                     </div>
                   </div>
                 </div>
