@@ -6,6 +6,7 @@ import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerDevAuthRoutes } from "./devAuth";
+import { registerEmailAuthRoutes } from "./emailAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -43,6 +44,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Dev login (only active in non-production when OAuth is not configured)
   registerDevAuthRoutes(app);
+  // Email + password authentication
+  registerEmailAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
