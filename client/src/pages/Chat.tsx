@@ -29,8 +29,6 @@ import {
   FileText,
   Shield,
   Activity,
-  ChevronDown,
-  ChevronUp,
   Search,
   ArrowUpRight,
   ArrowDownRight,
@@ -194,7 +192,6 @@ function AgentThinking({ elapsedMs }: { elapsedMs: number }) {
   );
 
   useEffect(() => {
-    // Simulate step progression based on elapsed time
     const timings = [0, 800, 2200, 3800, 5500];
     const newSteps = AGENT_STEPS.map((s, i) => {
       if (elapsedMs >= (timings[i + 1] ?? Infinity)) {
@@ -208,7 +205,7 @@ function AgentThinking({ elapsedMs }: { elapsedMs: number }) {
   }, [elapsedMs]);
 
   return (
-    <div className="card-base rounded-xl px-4 py-3 max-w-md">
+    <div className="rounded-xl px-4 py-3 max-w-md bg-surface/30 border border-border/10">
       <div className="flex items-center gap-2 mb-2.5">
         <div className="w-5 h-5 rounded-md bg-gold/15 flex items-center justify-center">
           <Cpu className="w-3 h-3 text-gold animate-pulse" />
@@ -259,7 +256,7 @@ function FollowUpActions({ onAction }: { onAction: (text: string) => void }) {
   ];
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2.5 border-t border-border/10">
+    <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border/10">
       {actions.map((a) => (
         <button
           key={a.label}
@@ -285,29 +282,37 @@ function SlashCommandPanel({
   onClose: () => void;
 }) {
   const filtered = SLASH_COMMANDS.filter(
-    (c) => c.cmd.includes(filter) || c.label.includes(filter)
+    (c) =>
+      c.cmd.toLowerCase().includes(filter.toLowerCase()) ||
+      c.label.includes(filter) ||
+      c.desc.includes(filter)
   );
 
   if (filtered.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 card-base rounded-xl border border-border/20 overflow-hidden shadow-lg z-50">
-      <div className="px-3 py-1.5 border-b border-border/10 flex items-center gap-1.5">
-        <Command className="w-3 h-3 text-gold" />
-        <span className="text-[10px] text-muted-foreground font-medium">快捷指令</span>
+    <div className="absolute bottom-full left-0 right-0 mb-2 bg-card border border-border/30 rounded-xl shadow-lg overflow-hidden z-50">
+      <div className="px-3 py-2 border-b border-border/15 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Command className="w-3 h-3 text-gold" />
+          <span className="text-[11px] font-semibold text-gold">快捷指令</span>
+        </div>
+        <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground">
+          ESC
+        </button>
       </div>
-      <div className="max-h-48 overflow-y-auto">
+      <div className="max-h-48 overflow-y-auto py-1">
         {filtered.map((c) => (
           <button
             key={c.cmd}
+            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface/50 transition-colors text-left"
             onClick={() => onSelect(c.cmd, c.label)}
-            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gold/5 transition-colors text-left"
           >
-            <div className="w-7 h-7 rounded-lg bg-surface-elevated flex items-center justify-center shrink-0">
-              <c.icon className="w-3.5 h-3.5 text-gold/70" />
+            <div className="w-6 h-6 rounded-md bg-surface-elevated flex items-center justify-center shrink-0">
+              <c.icon className="w-3 h-3 text-muted-foreground" />
             </div>
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-foreground">{c.label}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium">{c.label}</div>
               <div className="text-[10px] text-muted-foreground">{c.desc}</div>
             </div>
             <span className="text-[10px] text-muted-foreground/50 font-mono ml-auto shrink-0">{c.cmd}</span>
@@ -329,6 +334,10 @@ export default function Chat() {
   const [showSlashPanel, setShowSlashPanel] = useState(false);
   const [thinkingStart, setThinkingStart] = useState<number | null>(null);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
+  // Track which session is currently loading to prevent cross-session loading bleed
+  const [loadingSessionId, setLoadingSessionId] = useState<number | null>(null);
+  // Store optimistic user message for immediate display
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -367,13 +376,20 @@ export default function Chat() {
     onSuccess: () => {
       setThinkingStart(null);
       setThinkingElapsed(0);
+      setLoadingSessionId(null);
+      setPendingUserMessage(null);
       refetchMessages();
     },
     onError: () => {
       setThinkingStart(null);
       setThinkingElapsed(0);
+      setLoadingSessionId(null);
+      setPendingUserMessage(null);
     },
   });
+
+  // Only show loading for the session that is actually loading
+  const isCurrentSessionLoading = sendMessage.isPending && loadingSessionId === activeSessionId;
 
   // Thinking timer
   useEffect(() => {
@@ -386,7 +402,7 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sendMessage.isPending]);
+  }, [messages, isCurrentSessionLoading]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -418,12 +434,16 @@ export default function Chat() {
       const session = await createSession.mutateAsync({ title: resolvedContent.slice(0, 30) });
       setInput("");
       setShowSlashPanel(false);
+      setPendingUserMessage(resolvedContent);
+      setLoadingSessionId(session.id);
       await sendMessage.mutateAsync({ sessionId: session.id, content: resolvedContent });
       return;
     }
 
     setInput("");
     setShowSlashPanel(false);
+    setPendingUserMessage(resolvedContent);
+    setLoadingSessionId(activeSessionId);
     await sendMessage.mutateAsync({ sessionId: activeSessionId, content: resolvedContent });
   }, [input, activeSessionId, sendMessage.isPending]);
 
@@ -459,37 +479,37 @@ export default function Chat() {
     );
   }
 
-  // ========== Message rendering ==========
+  // ========== GPT-style message rendering ==========
   const renderMessage = (msg: { id: number; role: string; content: string }, isLast: boolean) => {
     if (msg.role === "user") {
+      // User message: right-aligned bubble (compact)
       return (
-        <div key={msg.id} className="flex gap-2.5 justify-end">
-          <div className="max-w-[75%] rounded-2xl px-3.5 py-2.5 bg-gold/12 text-foreground border border-gold/10">
-            <div className="text-[13px]">{msg.content}</div>
-          </div>
-          <div className="w-7 h-7 rounded-lg bg-surface-elevated flex items-center justify-center shrink-0 mt-0.5">
-            <User className="w-3.5 h-3.5 text-muted-foreground" />
+        <div key={msg.id} className="flex justify-end py-2">
+          <div className="max-w-[80%] lg:max-w-[60%]">
+            <div className="rounded-2xl rounded-br-md px-4 py-2.5 bg-gold/15 text-foreground border border-gold/10">
+              <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+            </div>
           </div>
         </div>
       );
     }
 
-    // Assistant message with structured rendering
+    // Assistant message: GPT-style full-width, no bubble
     return (
-      <div key={msg.id} className="flex gap-2.5 justify-start">
-        <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0 mt-0.5">
-          <Bot className="w-3.5 h-3.5 text-gold" />
-        </div>
-        <div className="max-w-[85%] space-y-0">
-          <div className="card-base rounded-2xl px-4 py-3">
-            <div className="text-[13px] prose prose-invert prose-sm max-w-none leading-relaxed [&_h1]:text-gold [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1.5 [&_h2]:text-gold [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:text-gold/90 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:mt-2.5 [&_h3]:mb-1 [&_strong]:text-gold/90 [&_code]:text-cyan [&_code]:bg-surface/50 [&_code]:px-1 [&_code]:rounded [&_table]:text-[12px] [&_table]:border-collapse [&_th]:bg-surface/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-gold/80 [&_th]:font-semibold [&_th]:text-left [&_th]:border [&_th]:border-border/20 [&_td]:px-2 [&_td]:py-1 [&_td]:border [&_td]:border-border/15 [&_hr]:border-border/15 [&_hr]:my-2 [&_blockquote]:border-l-gold/30 [&_blockquote]:bg-gold/5 [&_blockquote]:px-3 [&_blockquote]:py-1.5 [&_blockquote]:rounded-r-lg [&_ul]:space-y-0.5 [&_ol]:space-y-0.5 [&_li]:text-foreground/85">
+      <div key={msg.id} className="py-4">
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Bot className="w-3.5 h-3.5 text-gold" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13.5px] prose prose-invert prose-sm max-w-none leading-relaxed [&_h1]:text-gold [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:text-gold [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h3]:text-gold/90 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_strong]:text-gold/90 [&_code]:text-cyan [&_code]:bg-surface/50 [&_code]:px-1 [&_code]:rounded [&_table]:text-[12px] [&_table]:border-collapse [&_th]:bg-surface/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-gold/80 [&_th]:font-semibold [&_th]:text-left [&_th]:border [&_th]:border-border/20 [&_td]:px-2 [&_td]:py-1 [&_td]:border [&_td]:border-border/15 [&_hr]:border-border/15 [&_hr]:my-3 [&_blockquote]:border-l-gold/30 [&_blockquote]:bg-gold/5 [&_blockquote]:px-3 [&_blockquote]:py-1.5 [&_blockquote]:rounded-r-lg [&_ul]:space-y-1 [&_ol]:space-y-1 [&_li]:text-foreground/85 [&_p]:text-foreground/90 [&_p]:leading-relaxed">
               <Streamdown>{msg.content}</Streamdown>
             </div>
+            {/* Follow-up actions on last assistant message */}
+            {isLast && !isCurrentSessionLoading && (
+              <FollowUpActions onAction={handleSend} />
+            )}
           </div>
-          {/* Follow-up actions on last assistant message */}
-          {isLast && !sendMessage.isPending && (
-            <FollowUpActions onAction={handleSend} />
-          )}
         </div>
       </div>
     );
@@ -528,7 +548,7 @@ export default function Chat() {
 
   // ========== Input area ==========
   const renderInputArea = () => (
-    <div className="px-4 lg:px-6 py-3 border-t border-border/15 bg-background/60">
+    <div className="px-4 lg:px-6 py-3 border-t border-border/15 bg-background/60 backdrop-blur-sm">
       <div className={`${isMobile ? "max-w-lg" : "max-w-3xl"} mx-auto`}>
         <div className="relative">
           {showSlashPanel && (
@@ -580,7 +600,7 @@ export default function Chat() {
               onClick={() => handleSend()}
               disabled={!input.trim() || sendMessage.isPending}
             >
-              {sendMessage.isPending ? (
+              {isCurrentSessionLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />
@@ -660,6 +680,40 @@ export default function Chat() {
     </div>
   );
 
+  // ========== Messages area content ==========
+  const renderMessages = () => (
+    <>
+      {(!messages || messages.length === 0) && !isCurrentSessionLoading && !pendingUserMessage && renderEmptyState()}
+
+      {messages?.map((msg, i) => renderMessage(msg, i === messages.length - 1 && msg.role === "assistant"))}
+
+      {/* Show optimistic user message while waiting */}
+      {isCurrentSessionLoading && pendingUserMessage && (
+        <div className="flex justify-end py-2">
+          <div className="max-w-[80%] lg:max-w-[60%]">
+            <div className="rounded-2xl rounded-br-md px-4 py-2.5 bg-gold/15 text-foreground border border-gold/10">
+              <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap">{pendingUserMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent thinking indicator - only for the session that is loading */}
+      {isCurrentSessionLoading && (
+        <div className="py-4">
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+              <Bot className="w-3.5 h-3.5 text-gold" />
+            </div>
+            <AgentThinking elapsedMs={thinkingElapsed} />
+          </div>
+        </div>
+      )}
+
+      <div ref={messagesEndRef} />
+    </>
+  );
+
   // ========== Desktop Layout ==========
   if (!isMobile) {
     return (
@@ -684,23 +738,10 @@ export default function Chat() {
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-            <div className="max-w-3xl mx-auto space-y-4">
-              {(!messages || messages.length === 0) && !sendMessage.isPending && renderEmptyState()}
-
-              {messages?.map((msg, i) => renderMessage(msg, i === messages.length - 1 && msg.role === "assistant"))}
-
-              {sendMessage.isPending && (
-                <div className="flex gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
-                    <Bot className="w-3.5 h-3.5 text-gold" />
-                  </div>
-                  <AgentThinking elapsedMs={thinkingElapsed} />
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
+          {/* Messages - GPT style: centered column, full width content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-6 py-4">
+              {renderMessages()}
             </div>
           </div>
 
@@ -812,21 +853,8 @@ export default function Chat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {(!messages || messages.length === 0) && !sendMessage.isPending && renderEmptyState()}
-
-        {messages?.map((msg, i) => renderMessage(msg, i === messages.length - 1 && msg.role === "assistant"))}
-
-        {sendMessage.isPending && (
-          <div className="flex gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
-              <Bot className="w-3.5 h-3.5 text-gold" />
-            </div>
-            <AgentThinking elapsedMs={thinkingElapsed} />
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {renderMessages()}
       </div>
 
       {renderInputArea()}

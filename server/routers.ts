@@ -138,10 +138,9 @@ export const appRouter = router({
         const key = `charts/${ctx.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const { url, dataUrl } = await storagePutWithBase64(key, buffer, input.mimeType);
         const { id } = await createChartAnalysis(ctx.user.id, url, key);
-        // Use base64 data URL for LLM analysis (works regardless of server accessibility)
-        analyzeChart(id, dataUrl).catch((err) =>
-          console.error("[ChartAnalysis] Background analysis failed:", err)
-        );
+        // Store the base64 data URL so chart.analyze can use it directly
+        // Do NOT start background analysis here - let the client call chart.analyze
+        await updateChartAnalysis(id, { analysisResult: dataUrl, status: "pending" });
         return { id, imageUrl: url };
       }),
 
@@ -152,9 +151,14 @@ export const appRouter = router({
         if (!analysis) throw new TRPCError({ code: "NOT_FOUND" });
         await updateChartAnalysis(input.id, { status: "analyzing" });
 
-        // Try to get base64 data URL for LLM (local files can't be accessed by external LLM)
+        // Get the image URL for LLM vision analysis
+        // Priority: stored base64 data URL > reconstruct from local file > original URL
         let imageUrlForLlm = analysis.imageUrl;
-        if (imageUrlForLlm.startsWith("/uploads/")) {
+
+        // Check if we have a stored base64 data URL from upload (stored in analysisResult temporarily)
+        if (analysis.analysisResult && analysis.analysisResult.startsWith("data:")) {
+          imageUrlForLlm = analysis.analysisResult;
+        } else if (imageUrlForLlm.startsWith("/uploads/")) {
           const mimeType = imageUrlForLlm.endsWith(".png") ? "image/png" : "image/jpeg";
           const dataUrl = getLocalFileAsDataUrl(analysis.imageKey, mimeType);
           if (dataUrl) {
@@ -162,19 +166,29 @@ export const appRouter = router({
           }
         }
 
+        console.log(`[ChartAnalysis] Analyzing id=${input.id}, imageUrl type: ${imageUrlForLlm.startsWith("data:") ? "base64" : "url"}, length: ${imageUrlForLlm.length}`);
+
         const messages: Message[] = [
           { role: "system", content: CHART_ANALYSIS_PROMPT },
           { role: "user", content: "请分析这张XAUUSD交易图表，识别所有关键形态、支撑阻力位和交易信号。" },
         ];
-        const result = await invokeCustomLLMWithImage({
-          messages,
-          imageUrl: imageUrlForLlm,
-          maxTokens: 4096,
-          temperature: 0.5,
-        });
-        const content = extractContent(result);
-        await updateChartAnalysis(input.id, { analysisResult: content, status: "completed" });
-        return { analysisResult: content };
+
+        try {
+          const result = await invokeCustomLLMWithImage({
+            messages,
+            imageUrl: imageUrlForLlm,
+            maxTokens: 4096,
+            temperature: 0.5,
+          });
+          const content = extractContent(result);
+          await updateChartAnalysis(input.id, { analysisResult: content, status: "completed" });
+          return { analysisResult: content };
+        } catch (error) {
+          console.error("[ChartAnalysis] Analysis failed:", error);
+          const errMsg = `分析失败: ${error instanceof Error ? error.message : "未知错误"}。请检查 LLM API 是否支持图片分析（Vision）功能。`;
+          await updateChartAnalysis(input.id, { analysisResult: errMsg, status: "failed" });
+          return { analysisResult: errMsg };
+        }
       }),
   }),
 
@@ -373,27 +387,3 @@ export const appRouter = router({
 
 export type AppRouter = typeof appRouter;
 
-// Background chart analysis
-async function analyzeChart(analysisId: number, imageUrl: string) {
-  try {
-    await updateChartAnalysis(analysisId, { status: "analyzing" });
-
-    // imageUrl may be a base64 data URL or an external URL
-    // Both are supported by the LLM Vision API
-    const messages: Message[] = [
-      { role: "system", content: CHART_ANALYSIS_PROMPT },
-      { role: "user", content: "请分析这张XAUUSD交易图表，识别所有关键形态、支撑阻力位和交易信号。" },
-    ];
-    const result = await invokeCustomLLMWithImage({
-      messages,
-      imageUrl,
-      maxTokens: 4096,
-      temperature: 0.5,
-    });
-    const content = extractContent(result);
-    await updateChartAnalysis(analysisId, { analysisResult: content, status: "completed" });
-  } catch (error) {
-    console.error("[ChartAnalysis] Failed:", error);
-    await updateChartAnalysis(analysisId, { status: "failed", analysisResult: "分析失败，请重试" });
-  }
-}
