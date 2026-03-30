@@ -15,11 +15,11 @@ import { initWebSocket, startRealtimePush } from "../wsServer";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
+    const tester = net.createServer();
+    tester.listen(port, "0.0.0.0", () => {
+      tester.close(() => resolve(true));
     });
-    server.on("error", () => resolve(false));
+    tester.on("error", () => resolve(false));
   });
 }
 
@@ -71,8 +71,8 @@ async function startServer() {
   // Initialize WebSocket before listen
   initWebSocket(server);
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${port}/`);
     // Start background cache warming so API responses are always fast
     startCacheWarming();
     // Start WebSocket realtime push
