@@ -308,8 +308,25 @@ export default function ChartAnalysis() {
                 onClick={() => openHistoryDetail(item.id)}
               >
                 <div className="flex gap-3">
-                  <div className="w-16 h-16 rounded-lg bg-surface-elevated overflow-hidden shrink-0 border border-border/20">
-                    <img src={item.imageUrl} alt="Chart" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                  <div className={`w-14 h-14 rounded-xl shrink-0 flex flex-col items-center justify-center border transition-all ${
+                    isCompleted
+                      ? "bg-gradient-to-br from-green/10 to-green/3 border-green/15 group-hover:border-green/30"
+                      : item.status === "analyzing"
+                      ? "bg-gradient-to-br from-gold/10 to-gold/3 border-gold/15 group-hover:border-gold/30"
+                      : isFailed
+                      ? "bg-gradient-to-br from-red/10 to-red/3 border-red/15 group-hover:border-red/30"
+                      : "bg-gradient-to-br from-cyan/10 to-cyan/3 border-cyan/15 group-hover:border-cyan/30"
+                  }`}>
+                    {isCompleted ? (
+                      <CheckCircle2 className="w-5 h-5 text-green mb-0.5" />
+                    ) : item.status === "analyzing" ? (
+                      <Loader2 className="w-5 h-5 text-gold animate-spin mb-0.5" />
+                    ) : isFailed ? (
+                      <AlertTriangle className="w-5 h-5 text-red mb-0.5" />
+                    ) : (
+                      <BarChart3 className="w-5 h-5 text-cyan mb-0.5" />
+                    )}
+                    <span className="text-[8px] font-bold text-muted-foreground tracking-wider">XAUUSD</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
