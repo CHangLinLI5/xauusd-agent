@@ -3,7 +3,36 @@
  * 所有时间显示统一使用中国时间（UTC+8 / Asia/Shanghai）
  */
 
+import { useState, useEffect } from "react";
+
 const CHINA_TZ = "Asia/Shanghai";
+
+/**
+ * React Hook: 实时时钟，每秒更新，显示中国时间 HH:MM:SS
+ */
+export function useRealtimeClock(): string {
+  const [time, setTime] = useState(() => getNowTimeCN());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTime(getNowTimeCN());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return time;
+}
+
+/**
+ * 获取当前中国时间的 HH:MM:SS 字符串
+ */
+export function getNowTimeCN(): string {
+  return new Date().toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: CHINA_TZ,
+    hour12: false,
+  });
+}
 
 /**
  * 格式化时间戳为中国时间的时分秒

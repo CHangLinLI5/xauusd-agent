@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { formatTimeCN, formatTimeShortCN, getTodayDateCN } from "@/lib/timeUtils";
+import { formatTimeCN, formatTimeShortCN, getTodayDateCN, useRealtimeClock } from "@/lib/timeUtils";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
@@ -99,6 +99,9 @@ export default function Home() {
     prevPriceRef.current = currentPrice;
   }, [currentPrice]);
 
+  // Realtime clock (updates every second, China timezone)
+  const realtimeClock = useRealtimeClock();
+
   // Format timestamp (use China timezone)
   const formatTime = formatTimeCN;
 
@@ -139,12 +142,10 @@ export default function Home() {
                   <WifiOff className="w-3 h-3 text-gold/60" />
                 )}
               </div>
-              {/* Timestamp */}
-              {quote?.timestamp && (
-                <span className="text-[9px] text-muted-foreground/60 font-mono">
-                  {formatTime(quote.timestamp)}
-                </span>
-              )}
+              {/* Realtime Clock */}
+              <span className="text-[11px] text-gold/70 font-mono font-semibold tracking-wider">
+                {realtimeClock}
+              </span>
             </div>
 
             {/* Price display */}
