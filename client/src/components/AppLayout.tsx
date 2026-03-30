@@ -9,6 +9,7 @@ import {
   Settings,
   Wifi,
   WifiOff,
+  User,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
@@ -137,6 +138,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               </Link>
             )}
+
+            {/* User Profile Entry */}
+            {user ? (
+              <Link href="/profile">
+                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+                  location === "/profile"
+                    ? "bg-gold/12 text-gold border border-gold/15"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface/60"
+                }`}>
+                  <div className="w-[18px] h-[18px] rounded-full bg-gradient-to-br from-gold/40 to-gold/15 flex items-center justify-center text-[8px] font-bold text-gold">
+                    {(user.name || "U").slice(0, 1).toUpperCase()}
+                  </div>
+                  <span className="truncate">{user.name || "个人中心"}</span>
+                </div>
+              </Link>
+            ) : (
+              <Link href="/login">
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-surface/60 transition-all duration-150">
+                  <User className="w-[18px] h-[18px]" />
+                  登录
+                </div>
+              </Link>
+            )}
           </div>
         </aside>
 
@@ -207,6 +231,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       : "text-muted-foreground hover:text-foreground hover:bg-surface"
                   }`}>
                     <Settings className="w-[18px] h-[18px]" />
+                  </button>
+                </Link>
+              )}
+              {/* Profile / Login button */}
+              {user ? (
+                <Link href="/profile">
+                  <button className={`p-1.5 rounded-lg transition-all duration-200 ${
+                    location === "/profile"
+                      ? "ring-2 ring-gold/30"
+                      : ""
+                  }`}>
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-gold/40 to-gold/15 flex items-center justify-center text-[9px] font-bold text-gold border border-gold/20">
+                      {(user.name || "U").slice(0, 1).toUpperCase()}
+                    </div>
+                  </button>
+                </Link>
+              ) : (
+                <Link href="/login">
+                  <button className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-all duration-200">
+                    <User className="w-[18px] h-[18px]" />
                   </button>
                 </Link>
               )}

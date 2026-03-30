@@ -15,6 +15,7 @@ const ChartAnalysis = lazy(() => import("./pages/ChartAnalysis"));
 const RiskControl = lazy(() => import("./pages/RiskControl"));
 const AdminConfig = lazy(() => import("./pages/AdminConfig"));
 const Login = lazy(() => import("./pages/Login"));
+const Profile = lazy(() => import("./pages/Profile"));
 
 function PageLoader() {
   return (
@@ -39,6 +40,7 @@ function Router() {
         <Route path="/risk" component={RiskControl} />
         <Route path="/admin" component={AdminConfig} />
         <Route path="/login" component={Login} />
+        <Route path="/profile" component={Profile} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

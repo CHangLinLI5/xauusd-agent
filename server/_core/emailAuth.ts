@@ -1,7 +1,8 @@
 /**
  * 邮箱+密码认证模块
  *
- * 提供注册和登录功能，使用 bcryptjs 进行密码哈希
+ * 提供注册、登录、修改昵称、修改密码、交易偏好等功能
+ * 使用 bcryptjs 进行密码哈希
  * 复用现有 JWT session 签发机制
  * 支持无数据库环境（内存存储降级）
  */
@@ -22,7 +23,17 @@ interface UserCredential {
   createdAt: Date;
 }
 
+interface TradingPreferences {
+  defaultLotSize: string;
+  maxDailyLoss: string;
+  riskRewardRatio: string;
+  maxOpenPositions: string;
+  preferredSession: string;
+  stopLossPoints: string;
+}
+
 const credentialStore = new Map<string, UserCredential>(); // key = email (lowercase)
+const preferencesStore = new Map<string, TradingPreferences>(); // key = openId
 
 // ========== Helpers ==========
 
@@ -54,18 +65,46 @@ function validateInput(email: string, password: string): string | null {
 // ========== Credential Storage (with DB fallback) ==========
 
 async function getCredentialByEmail(email: string): Promise<UserCredential | undefined> {
-  // Always check in-memory store first (works without DB)
   return credentialStore.get(normalizeEmail(email));
+}
+
+function getCredentialByOpenId(openId: string): UserCredential | undefined {
+  const entries = Array.from(credentialStore.values());
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i]!.openId === openId) return entries[i];
+  }
+  return undefined;
 }
 
 async function saveCredential(cred: UserCredential): Promise<void> {
   credentialStore.set(normalizeEmail(cred.email), cred);
 }
 
+// ========== Auth Middleware Helper ==========
+
+async function getAuthenticatedUser(req: Request): Promise<{ openId: string; name: string } | null> {
+  try {
+    const cookieHeader = req.headers.cookie || "";
+    const cookies = cookieHeader.split(";").reduce((acc, c) => {
+      const [key, ...val] = c.trim().split("=");
+      if (key) acc[key] = val.join("=");
+      return acc;
+    }, {} as Record<string, string>);
+
+    const sessionCookie = cookies[COOKIE_NAME];
+    if (!sessionCookie) return null;
+
+    const session = await sdk.verifySession(sessionCookie);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 // ========== Route Registration ==========
 
 export function registerEmailAuthRoutes(app: Express) {
-  console.log("[EmailAuth] Email login/register enabled at /api/email-auth/*");
+  console.log("[EmailAuth] Email auth routes enabled at /api/email-auth/*");
 
   /**
    * POST /api/email-auth/register
@@ -75,7 +114,6 @@ export function registerEmailAuthRoutes(app: Express) {
     try {
       const { email, password, name } = req.body ?? {};
 
-      // Validate
       const error = validateInput(email, password);
       if (error) {
         res.status(400).json({ ok: false, error });
@@ -84,19 +122,16 @@ export function registerEmailAuthRoutes(app: Express) {
 
       const normalizedEmail = normalizeEmail(email);
 
-      // Check if email already registered
       const existing = await getCredentialByEmail(normalizedEmail);
       if (existing) {
         res.status(409).json({ ok: false, error: "该邮箱已注册，请直接登录" });
         return;
       }
 
-      // Hash password
       const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
       const openId = generateOpenId(normalizedEmail);
       const displayName = name?.trim() || normalizedEmail.split("@")[0] || "Trader";
 
-      // Save credential
       await saveCredential({
         openId,
         email: normalizedEmail,
@@ -105,27 +140,24 @@ export function registerEmailAuthRoutes(app: Express) {
         createdAt: new Date(),
       });
 
-      // Upsert user in DB/memory (non-critical, may fail silently)
       try {
         await db.upsertUser({
           openId,
           name: displayName,
           email: normalizedEmail,
           loginMethod: "email",
-          role: "admin", // First user gets admin for self-hosted
+          role: "admin",
           lastSignedIn: new Date(),
         });
       } catch {
         console.warn("[EmailAuth] DB upsert skipped (no database)");
       }
 
-      // Create session token
       const sessionToken = await sdk.createSessionToken(openId, {
         name: displayName,
         expiresInMs: ONE_YEAR_MS,
       });
 
-      // Set cookie
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, {
         ...cookieOptions,
@@ -150,7 +182,6 @@ export function registerEmailAuthRoutes(app: Express) {
     try {
       const { email, password } = req.body ?? {};
 
-      // Validate
       const error = validateInput(email, password);
       if (error) {
         res.status(400).json({ ok: false, error });
@@ -159,21 +190,18 @@ export function registerEmailAuthRoutes(app: Express) {
 
       const normalizedEmail = normalizeEmail(email);
 
-      // Find credential
       const cred = await getCredentialByEmail(normalizedEmail);
       if (!cred) {
         res.status(401).json({ ok: false, error: "邮箱未注册，请先注册" });
         return;
       }
 
-      // Verify password
       const isValid = await bcrypt.compare(password, cred.passwordHash);
       if (!isValid) {
         res.status(401).json({ ok: false, error: "密码错误" });
         return;
       }
 
-      // Update last sign in (non-critical)
       try {
         await db.upsertUser({
           openId: cred.openId,
@@ -183,13 +211,11 @@ export function registerEmailAuthRoutes(app: Express) {
         // Ignore DB errors
       }
 
-      // Create session token
       const sessionToken = await sdk.createSessionToken(cred.openId, {
         name: cred.name,
         expiresInMs: ONE_YEAR_MS,
       });
 
-      // Set cookie
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, {
         ...cookieOptions,
@@ -203,6 +229,198 @@ export function registerEmailAuthRoutes(app: Express) {
     } catch (error) {
       console.error("[EmailAuth] Login failed:", error);
       res.status(500).json({ ok: false, error: "登录失败，请稍后重试" });
+    }
+  });
+
+  /**
+   * POST /api/email-auth/update-profile
+   * Body: { name }
+   * Requires authentication
+   */
+  app.post("/api/email-auth/update-profile", async (req: Request, res: Response) => {
+    try {
+      const session = await getAuthenticatedUser(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: "请先登录" });
+        return;
+      }
+
+      const { name } = req.body ?? {};
+      if (!name || typeof name !== "string" || !name.trim()) {
+        res.status(400).json({ ok: false, error: "昵称不能为空" });
+        return;
+      }
+
+      const trimmedName = name.trim();
+      if (trimmedName.length > 50) {
+        res.status(400).json({ ok: false, error: "昵称不能超过 50 个字符" });
+        return;
+      }
+
+      // Update credential store
+      const cred = getCredentialByOpenId(session.openId);
+      if (cred) {
+        cred.name = trimmedName;
+        credentialStore.set(normalizeEmail(cred.email), cred);
+      }
+
+      // Update DB
+      try {
+        await db.upsertUser({
+          openId: session.openId,
+          name: trimmedName,
+        });
+      } catch {
+        console.warn("[EmailAuth] DB update-profile skipped");
+      }
+
+      // Re-issue session token with new name
+      const sessionToken = await sdk.createSessionToken(session.openId, {
+        name: trimmedName,
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
+
+      res.json({ ok: true, name: trimmedName });
+    } catch (error) {
+      console.error("[EmailAuth] Update profile failed:", error);
+      res.status(500).json({ ok: false, error: "更新失败，请重试" });
+    }
+  });
+
+  /**
+   * POST /api/email-auth/change-password
+   * Body: { oldPassword, newPassword }
+   * Requires authentication
+   */
+  app.post("/api/email-auth/change-password", async (req: Request, res: Response) => {
+    try {
+      const session = await getAuthenticatedUser(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: "请先登录" });
+        return;
+      }
+
+      const { oldPassword, newPassword } = req.body ?? {};
+
+      if (!oldPassword || typeof oldPassword !== "string") {
+        res.status(400).json({ ok: false, error: "请输入当前密码" });
+        return;
+      }
+      if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
+        res.status(400).json({ ok: false, error: "新密码长度至少 6 位" });
+        return;
+      }
+      if (newPassword.length > 128) {
+        res.status(400).json({ ok: false, error: "新密码长度不能超过 128 位" });
+        return;
+      }
+
+      // Find credential by openId
+      const cred = getCredentialByOpenId(session.openId);
+      if (!cred) {
+        res.status(404).json({ ok: false, error: "用户凭证未找到，可能需要重新注册" });
+        return;
+      }
+
+      // Verify old password
+      const isValid = await bcrypt.compare(oldPassword, cred.passwordHash);
+      if (!isValid) {
+        res.status(401).json({ ok: false, error: "当前密码错误" });
+        return;
+      }
+
+      // Hash new password and update
+      const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      cred.passwordHash = newHash;
+      credentialStore.set(normalizeEmail(cred.email), cred);
+
+      res.json({ ok: true, message: "密码已更新" });
+    } catch (error) {
+      console.error("[EmailAuth] Change password failed:", error);
+      res.status(500).json({ ok: false, error: "修改密码失败，请重试" });
+    }
+  });
+
+  /**
+   * GET /api/email-auth/preferences
+   * Get trading preferences for authenticated user
+   */
+  app.get("/api/email-auth/preferences", async (req: Request, res: Response) => {
+    try {
+      const session = await getAuthenticatedUser(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: "请先登录" });
+        return;
+      }
+
+      const prefs = preferencesStore.get(session.openId) || {
+        defaultLotSize: "0.1",
+        maxDailyLoss: "2",
+        riskRewardRatio: "1:2",
+        maxOpenPositions: "3",
+        preferredSession: "us",
+        stopLossPoints: "100",
+      };
+
+      res.json({ ok: true, preferences: prefs });
+    } catch (error) {
+      console.error("[EmailAuth] Get preferences failed:", error);
+      res.status(500).json({ ok: false, error: "获取偏好失败" });
+    }
+  });
+
+  /**
+   * POST /api/email-auth/update-preferences
+   * Body: { preferences: { ... } }
+   * Requires authentication
+   */
+  app.post("/api/email-auth/update-preferences", async (req: Request, res: Response) => {
+    try {
+      const session = await getAuthenticatedUser(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: "请先登录" });
+        return;
+      }
+
+      const { preferences } = req.body ?? {};
+      if (!preferences || typeof preferences !== "object") {
+        res.status(400).json({ ok: false, error: "无效的偏好数据" });
+        return;
+      }
+
+      // Validate and sanitize preferences
+      const sanitized: TradingPreferences = {
+        defaultLotSize: String(preferences.defaultLotSize || "0.1").slice(0, 10),
+        maxDailyLoss: String(preferences.maxDailyLoss || "2").slice(0, 10),
+        riskRewardRatio: String(preferences.riskRewardRatio || "1:2").slice(0, 10),
+        maxOpenPositions: String(preferences.maxOpenPositions || "3").slice(0, 10),
+        preferredSession: String(preferences.preferredSession || "us").slice(0, 20),
+        stopLossPoints: String(preferences.stopLossPoints || "100").slice(0, 10),
+      };
+
+      preferencesStore.set(session.openId, sanitized);
+
+      // Also persist to system config if possible
+      try {
+        await db.setConfig(
+          `user_prefs_${session.openId}`,
+          JSON.stringify(sanitized),
+          "Trading preferences"
+        );
+      } catch {
+        // Memory-only is fine
+      }
+
+      res.json({ ok: true, preferences: sanitized });
+    } catch (error) {
+      console.error("[EmailAuth] Update preferences failed:", error);
+      res.status(500).json({ ok: false, error: "保存偏好失败" });
     }
   });
 
