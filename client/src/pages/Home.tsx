@@ -118,7 +118,7 @@ export default function Home() {
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-gold/25 to-gold/10 flex items-center justify-center border border-gold/20">
-              <img src="/favicon.svg" alt="GoldBias" className="w-5.5 h-5.5" />
+              <img src="/logo.png" alt="GoldBias" className="w-7 h-7 rounded-md" />
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight">

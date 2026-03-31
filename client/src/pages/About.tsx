@@ -35,7 +35,7 @@ export default function About() {
         {/* Hero Section */}
         <section className="text-center py-8">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-gold/25 via-gold/15 to-gold/5 border border-gold/20 shadow-[0_0_30px_rgba(240,192,64,0.1)] mb-5">
-            <img src="/favicon.svg" alt="GoldBias" className="w-12 h-12" />
+            <img src="/logo.png" alt="GoldBias" className="w-14 h-14 rounded-lg" />
           </div>
           <h2 className="text-2xl font-bold mb-2">
             Gold<span className="text-gold">Bias</span>
