@@ -128,12 +128,12 @@ export default function AdminConfig() {
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               className="w-full h-40 bg-surface/60 rounded-xl p-3.5 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-gold/30 border border-border/20 focus:border-gold/30 text-foreground/80 transition-all"
-              placeholder="输入 XAUUSD Agent 的系统提示词..."
+              placeholder="输入 GoldBias AI 的系统提示词..."
             />
             <Button
               size="sm"
               className="mt-3 gap-1.5 bg-gold/15 hover:bg-gold/25 text-gold border-0 rounded-lg"
-              onClick={() => saveConfig.mutate({ key: "system_prompt", value: systemPrompt, description: "XAUUSD Agent 系统提示词" })}
+              onClick={() => saveConfig.mutate({ key: "system_prompt", value: systemPrompt, description: "GoldBias AI 系统提示词" })}
               disabled={saveConfig.isPending}
             >
               {saveConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}

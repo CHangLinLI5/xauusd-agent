@@ -12,6 +12,7 @@ import {
   User,
   TrendingUp,
   TrendingDown,
+  Info,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
@@ -56,14 +57,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Brand Header */}
           <div className="flex items-center gap-3 px-5 h-16 border-b border-border/20">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_12px_rgba(240,192,64,0.08)]">
-              <span className="text-gradient-gold text-[11px] font-extrabold tracking-tight">Au</span>
+              <img src="/favicon.svg" alt="GoldBias" className="w-5 h-5" />
             </div>
             <div className="flex flex-col">
               <span className="text-[13px] font-bold tracking-tight leading-tight">
-                XAUUSD <span className="text-gold">Agent</span>
+                Gold<span className="text-gold">Bias</span>
               </span>
-              <span className="text-[9px] text-muted-foreground/60 leading-tight tracking-[0.15em] uppercase">
-                Gold Trading AI
+              <span className="text-[9px] text-muted-foreground/60 leading-tight tracking-[0.12em]">
+                结构化交易助手
               </span>
             </div>
           </div>
@@ -153,6 +154,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </Link>
             )}
 
+            <Link href="/about">
+              <div className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-250 press-scale ${
+                location === "/about"
+                  ? "bg-gold/10 text-gold border border-gold/15"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface/70 border border-transparent"
+              }`}>
+                <Info className="w-[18px] h-[18px]" />
+                关于
+              </div>
+            </Link>
+
             {/* User Profile */}
             {user ? (
               <Link href="/profile">
@@ -197,14 +209,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Brand */}
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_10px_rgba(240,192,64,0.06)]">
-              <span className="text-gradient-gold text-[10px] font-extrabold tracking-tight">Au</span>
+              <img src="/favicon.svg" alt="GoldBias" className="w-4.5 h-4.5" />
             </div>
             <div className="flex flex-col">
               <span className="text-[13px] font-bold tracking-tight leading-tight">
-                XAUUSD <span className="text-gold">Agent</span>
+                Gold<span className="text-gold">Bias</span>
               </span>
-              <span className="text-[8px] text-muted-foreground/50 leading-tight tracking-[0.15em] uppercase">
-                Gold Trading AI
+              <span className="text-[8px] text-muted-foreground/50 leading-tight tracking-[0.12em]">
+                结构化交易助手
               </span>
             </div>
           </div>

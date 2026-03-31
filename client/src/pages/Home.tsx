@@ -29,6 +29,8 @@ import {
   WifiOff,
   Info,
   ChevronRight,
+  ListChecks,
+  Sparkles,
 } from "lucide-react";
 
 export default function Home() {
@@ -110,6 +112,34 @@ export default function Home() {
 
   return (
     <div className={containerClass}>
+      {/* GoldBias Slogan Banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-gold/8 via-gold/4 to-transparent border border-gold/10 px-5 py-4">
+        <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl bg-gold/5" />
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-gold/25 to-gold/10 flex items-center justify-center border border-gold/20">
+              <img src="/favicon.svg" alt="GoldBias" className="w-5.5 h-5.5" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold leading-tight">
+                Gold<span className="text-gold">Bias</span>
+              </h1>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                先判环境，再等位置，所有技术服务于止损
+              </p>
+            </div>
+          </div>
+          <Link href="/plan">
+            <button className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gold/12 hover:bg-gold/20 border border-gold/15 text-gold text-xs font-semibold transition-all duration-300 hover:shadow-[0_0_12px_rgba(240,192,64,0.1)] press-scale">
+              <ListChecks className="w-3.5 h-3.5" />
+              <span className={isMobile ? "hidden" : ""}>今日执行清单</span>
+              <span className={isMobile ? "" : "hidden"}>执行清单</span>
+              <ChevronRight className="w-3 h-3 opacity-60" />
+            </button>
+          </Link>
+        </div>
+      </div>
+
       {/* Desktop: Top row with price + bias/risk side by side */}
       <div className={isMobile ? "space-y-4" : "grid grid-cols-3 gap-5"}>
         {/* Hero Price Section */}
@@ -511,8 +541,16 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Bottom Spacer */}
-      <div className="h-2" />
+      {/* Footer with About link */}
+      <div className="flex items-center justify-center gap-3 py-4 text-[10px] text-muted-foreground/40">
+        <span>GoldBias v1.0</span>
+        <span>&middot;</span>
+        <Link href="/about">
+          <span className="hover:text-gold/60 transition-colors cursor-pointer">关于 GoldBias</span>
+        </Link>
+        <span>&middot;</span>
+        <span>by Traderynn</span>
+      </div>
     </div>
   );
 }

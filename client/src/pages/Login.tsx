@@ -67,9 +67,9 @@ export default function Login() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gold/10 border border-gold/20 mb-4">
             <Shield className="w-8 h-8 text-gold" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">XAUUSD Agent</h1>
+          <h1 className="text-2xl font-bold text-foreground">Gold<span className="text-gold">Bias</span></h1>
           <p className="text-sm text-muted-foreground mt-1">
-            现货黄金智能交易系统
+            现货黄金结构化交易助手
           </p>
         </div>
 

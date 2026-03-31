@@ -16,6 +16,7 @@ const RiskControl = lazy(() => import("./pages/RiskControl"));
 const AdminConfig = lazy(() => import("./pages/AdminConfig"));
 const Login = lazy(() => import("./pages/Login"));
 const Profile = lazy(() => import("./pages/Profile"));
+const About = lazy(() => import("./pages/About"));
 
 function PageLoader() {
   return (
@@ -41,6 +42,7 @@ function Router() {
         <Route path="/admin" component={AdminConfig} />
         <Route path="/login" component={Login} />
         <Route path="/profile" component={Profile} />
+        <Route path="/about" component={About} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

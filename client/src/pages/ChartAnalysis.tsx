@@ -61,7 +61,7 @@ function AnalysisReport({ content }: { content: string }) {
         </div>
         <div>
           <h3 className="text-sm font-bold text-foreground">AI 分析报告</h3>
-          <p className="text-[10px] text-muted-foreground">XAUUSD Chart Analysis Report</p>
+          <p className="text-[10px] text-muted-foreground">GoldBias Chart Analysis Report</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded-lg bg-green/10">
           <CheckCircle2 className="w-3 h-3 text-green" />
@@ -326,7 +326,7 @@ export default function ChartAnalysis() {
                     ) : (
                       <BarChart3 className="w-5 h-5 text-cyan mb-0.5" />
                     )}
-                    <span className="text-[8px] font-bold text-muted-foreground tracking-wider">XAUUSD</span>
+                    <span className="text-[8px] font-bold text-muted-foreground tracking-wider">XAU/USD</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">

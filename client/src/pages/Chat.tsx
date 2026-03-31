@@ -56,7 +56,7 @@ interface AgentStep {
 // ========== Constants ==========
 
 const QUICK_QUESTIONS = [
-  { text: "今天 XAUUSD 偏多还是偏空？", icon: TrendingUp, cmd: "/bias" },
+  { text: "今天黄金偏多还是偏空？", icon: TrendingUp, cmd: "/bias" },
   { text: "当前价格接近哪个关键位？", icon: Target, cmd: "/levels" },
   { text: "现在是消息前震荡还是消息后单边？", icon: Clock, cmd: "/session" },
   { text: "给我生成今天的完整交易计划", icon: FileText, cmd: "/plan" },
@@ -464,7 +464,7 @@ export default function Chat() {
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gold/30 via-gold/15 to-gold/5 flex items-center justify-center mb-5 border border-gold/25 shadow-[0_0_20px_rgba(240,192,64,0.12)]">
           <span className="text-gradient-gold text-xl font-extrabold tracking-tight">Au</span>
         </div>
-        <h2 className="text-xl font-bold mb-2">XAUUSD AI Agent</h2>
+        <h2 className="text-xl font-bold mb-2">GoldBias AI</h2>
         <p className="text-sm text-muted-foreground text-center mb-6 max-w-[280px] leading-relaxed">
           专注黄金日内交易的智能分析Agent，基于价格行为、关键位和基本面的专业决策系统
         </p>
@@ -520,7 +520,7 @@ export default function Chat() {
       <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold/15 to-gold/5 flex items-center justify-center mb-4">
         <Sparkles className="w-7 h-7 text-gold" />
       </div>
-      <h3 className="text-base font-bold mb-0.5">XAUUSD Agent</h3>
+      <h3 className="text-base font-bold mb-0.5">GoldBias AI</h3>
       <p className="text-[11px] text-muted-foreground text-center mb-1 max-w-[280px]">
         专注黄金日内交易的智能分析系统
       </p>
@@ -728,7 +728,7 @@ export default function Chat() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold truncate">
-                {sessions?.find((s) => s.id === activeSessionId)?.title ?? "XAUUSD Agent"}
+                {sessions?.find((s) => s.id === activeSessionId)?.title ?? "GoldBias AI"}
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -838,7 +838,7 @@ export default function Chat() {
             <span className="text-gradient-gold text-[8px] font-extrabold tracking-tight">Au</span>
           </div>
           <div className="text-sm font-semibold truncate">
-            {sessions?.find((s) => s.id === activeSessionId)?.title ?? "XAUUSD Agent"}
+            {sessions?.find((s) => s.id === activeSessionId)?.title ?? "GoldBias AI"}
           </div>
         </div>
         <Button

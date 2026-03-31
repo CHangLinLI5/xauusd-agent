@@ -540,7 +540,7 @@ export default function Profile() {
 
       {/* Footer */}
       <div className="text-center text-xs text-muted-foreground/50 py-4">
-        XAUUSD Agent v1.0 &middot; 现货黄金智能交易系统
+        GoldBias v1.0 &middot; 现货黄金结构化交易助手
       </div>
     </div>
   );
