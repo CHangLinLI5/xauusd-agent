@@ -56,8 +56,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <aside className="sticky top-0 h-screen w-[220px] flex flex-col border-r border-border/30 bg-sidebar shrink-0">
           {/* Brand Header */}
           <div className="flex items-center gap-3 px-5 h-16 border-b border-border/20">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_12px_rgba(240,192,64,0.08)]">
-              <img src="/logo.png" alt="GoldBias" className="w-7 h-7 rounded-md" />
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_10px_rgba(240,192,64,0.08)]">
+              <img src="/logo.png" alt="GoldBias" className="w-5 h-5" />
             </div>
             <div className="flex flex-col">
               <span className="text-[13px] font-bold tracking-tight leading-tight">
@@ -208,8 +208,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-between px-4 h-14">
           {/* Brand */}
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_10px_rgba(240,192,64,0.06)]">
-              <img src="/logo.png" alt="GoldBias" className="w-6 h-6 rounded-md" />
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-gold/30 via-gold/20 to-gold/5 flex items-center justify-center border border-gold/25 shadow-[0_0_10px_rgba(240,192,64,0.06)]">
+              <img src="/logo.png" alt="GoldBias" className="w-4 h-4" />
             </div>
             <div className="flex flex-col">
               <span className="text-[13px] font-bold tracking-tight leading-tight">
