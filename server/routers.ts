@@ -89,14 +89,7 @@ export const appRouter = router({
 
         // 构建增强的系统提示词：基础提示 + 实时数据 + 对话感知指令
         const conversationCount = history.filter((m) => m.role === "user").length;
-        const now = new Date();
-        const timeContext = `\n\n---\n**当前时间**: ${nowChinaISO()} (北京时间)\n**本次对话轮次**: 第${conversationCount}轮\n**对话指引**: ${
-          conversationCount === 1
-            ? "这是用户的第一个问题，给出全面但简洁的分析。"
-            : conversationCount <= 3
-              ? "用户已经有了基础了解，聚焦于新的角度和变化，不要重复之前已经分析过的内容。如果市场数据没变，从不同维度（形态、时间、情绪、资金流）切入。"
-              : "深度对话阶段，用户对市场已有充分了解。只回答具体问题，极度简洁，像交易员之间的对话。避免任何重复内容。"
-        }`;
+        const timeContext = `\n\n---\n当前北京时间: ${nowChinaISO()}\n对话第${conversationCount}轮。${conversationCount >= 3 ? "聊了好几轮了，别重复前面说过的，直接回答问题。" : ""}`;
 
         const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext + timeContext;
 
@@ -108,11 +101,10 @@ export const appRouter = router({
           })),
         ];
 
-        // 使用适度的 temperature 提升回复多样性
         const result = await invokeCustomLLM({
           messages,
-          maxTokens: 4096,
-          temperature: 0.7,
+          maxTokens: 2048,
+          temperature: 0.8,
         });
         const assistantContent = extractContent(result);
         await addChatMessage(input.sessionId, "assistant", assistantContent);
