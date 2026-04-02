@@ -13,6 +13,7 @@ import { serveStatic, setupVite } from "./vite";
 import { startCacheWarming } from "../marketData";
 import { initWebSocket, startRealtimePush } from "../wsServer";
 import { registerStreamRoutes } from "../streamChat";
+import { startTDWebSocket } from "../tdWebSocket";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -76,9 +77,11 @@ async function startServer() {
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
-    // Start background cache warming so API responses are always fast
+    // Start Twelve Data WebSocket for real-time XAU/USD price (no API cost)
+    startTDWebSocket();
+    // Start background cache warming (K-lines only, REST API)
     startCacheWarming();
-    // Start WebSocket realtime push
+    // Start WebSocket realtime push to frontend clients
     startRealtimePush();
   });
 }

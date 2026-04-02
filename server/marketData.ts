@@ -15,6 +15,7 @@
  */
 import { ENV } from "./_core/env";
 import type { MarketQuote } from "./mockData";
+import { getWsPrice, isWsConnected } from "./tdWebSocket";
 
 // ========== Types ==========
 
@@ -281,7 +282,26 @@ export async function getRealQuote(): Promise<MarketQuote> {
     return cache.quote.data;
   }
 
-  // Try full quote first
+  // Priority 1: WebSocket real-time price (no API cost)
+  const wsData = getWsPrice();
+  if (wsData && wsData.price > 1000) {
+    const prevQuote = (cache.quote as CacheEntry<MarketQuote> | undefined)?.data;
+    const quoteData: MarketQuote = {
+      symbol: "XAUUSD",
+      price: round2(wsData.price),
+      change: prevQuote ? round2(wsData.price - prevQuote.open) : 0,
+      changePercent: prevQuote && prevQuote.open > 0 ? round2(((wsData.price - prevQuote.open) / prevQuote.open) * 100) : 0,
+      high: prevQuote?.high && prevQuote.high > wsData.price ? round2(prevQuote.high) : round2(wsData.price),
+      low: prevQuote?.low && prevQuote.low < wsData.price && prevQuote.low > 1000 ? round2(prevQuote.low) : round2(wsData.price),
+      open: prevQuote?.open && prevQuote.open > 1000 ? round2(prevQuote.open) : round2(wsData.price),
+      timestamp: new Date(wsData.timestamp * 1000).toISOString(),
+    };
+
+    cache.quote = { data: quoteData, timestamp: Date.now() };
+    return quoteData;
+  }
+
+  // Priority 2: REST API full quote (fallback when WS disconnected)
   const tdQuote = await fetchQuote();
   if (tdQuote) {
     const price = parseFloat(tdQuote.close);
@@ -741,42 +761,87 @@ function getDefaultKeyLevels(): KeyLevels {
 let warmingInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
- * 后台预热缓存 v6
- * - Twelve Data 免费版每天 800 次
- * - 报价每 30 秒刷新一次（2880/天，但有缓存所以实际调用少）
- * - 日线/周线/日内数据按各自 TTL 刷新
+ * 后台预热缓存 v7
+ *
+ * 实时报价由 Twelve Data WebSocket 推送（不消耗 API 额度）
+ * REST API 只用于 K 线数据刷新，每天约 200-300 次，远低于 800 上限
+ *
+ * 刷新策略：
+ * - 报价：WebSocket 实时推送（1-3秒），WS 断线时才 fallback 到 REST（每2分钟）
+ * - 日内 K 线（15min）：每 5 分钟
+ * - 日线 K 线：每 30 分钟
+ * - 周线 K 线：每 2 小时
  */
 export function startCacheWarming() {
-  // 启动时获取报价
-  getRealQuote()
-    .then((q) => console.log(`[MarketData] Initial XAU/USD spot: $${q.price} (Twelve Data)`))
-    .catch(() => console.log("[MarketData] Initial quote fetch failed, will retry"));
+  // 启动时用 REST 获取一次完整报价（含 OHLC），作为 WebSocket 的补充
+  fetchQuote().then((q) => {
+    if (q) {
+      const price = parseFloat(q.close);
+      const open = parseFloat(q.open);
+      const high = parseFloat(q.high);
+      const low = parseFloat(q.low);
+      const prevClose = parseFloat(q.previous_close);
+      const change = price - prevClose;
+      const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+      const quoteData: MarketQuote = {
+        symbol: "XAUUSD",
+        price: round2(price),
+        change: round2(change),
+        changePercent: round2(changePercent),
+        high: round2(high > 0 ? high : price),
+        low: round2(low > 0 ? low : price),
+        open: round2(open > 0 ? open : price),
+        timestamp: new Date(q.timestamp * 1000).toISOString(),
+      };
+      cache.quote = { data: quoteData, timestamp: Date.now() };
+      console.log(`[MarketData] Initial XAU/USD spot: $${price.toFixed(2)} (REST, WS will take over)`);
+    }
+  }).catch(() => console.log("[MarketData] Initial quote fetch failed, waiting for WebSocket"));
 
   // 延迟加载 K 线数据
-  setTimeout(() => {
-    getDailyCandles().catch(() => {});
-  }, 3000);
+  setTimeout(() => { getDailyCandles().catch(() => {}); }, 3000);
+  setTimeout(() => { getIntradayCandles().catch(() => {}); }, 5000);
+  setTimeout(() => { getWeeklyCandles().catch(() => {}); }, 8000);
 
-  setTimeout(() => {
-    getIntradayCandles().catch(() => {});
-  }, 5000);
-
-  setTimeout(() => {
-    getWeeklyCandles().catch(() => {});
-  }, 8000);
-
-  // 定期刷新：每 30 秒
+  // 定期刷新 K 线数据：每 60 秒检查一次
   let refreshCycle = 0;
   warmingInterval = setInterval(async () => {
     refreshCycle++;
 
-    // 刷新报价（最重要）
-    try {
-      await getRealQuote();
-    } catch { /* silent */ }
+    // 如果 WebSocket 断线，每 4 个周期（2分钟）用 REST 刷新报价
+    if (!isWsConnected() && refreshCycle % 4 === 0) {
+      try {
+        // 强制走 REST（清除 quote 缓存让 getRealQuote 跳过 WS 分支）
+        const tdQuote = await fetchQuote();
+        if (tdQuote) {
+          const price = parseFloat(tdQuote.close);
+          const open = parseFloat(tdQuote.open);
+          const high = parseFloat(tdQuote.high);
+          const low = parseFloat(tdQuote.low);
+          const prevClose = parseFloat(tdQuote.previous_close);
+          const change = price - prevClose;
+          const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
-    // 每 10 个周期（5分钟）刷新日内数据
-    if (refreshCycle % 10 === 3) {
+          cache.quote = {
+            data: {
+              symbol: "XAUUSD",
+              price: round2(price),
+              change: round2(change),
+              changePercent: round2(changePercent),
+              high: round2(high > 0 ? high : price),
+              low: round2(low > 0 ? low : price),
+              open: round2(open > 0 ? open : price),
+              timestamp: new Date(tdQuote.timestamp * 1000).toISOString(),
+            },
+            timestamp: Date.now(),
+          };
+        }
+      } catch { /* silent */ }
+    }
+
+    // 每 5 个周期（5分钟）刷新日内数据
+    if (refreshCycle % 5 === 2) {
       try {
         if (!isCacheValid(cache.intradayCandles, CACHE_TTL.intraday)) {
           await getIntradayCandles();
@@ -784,8 +849,8 @@ export function startCacheWarming() {
       } catch { /* silent */ }
     }
 
-    // 每 60 个周期（30分钟）刷新日线数据
-    if (refreshCycle % 60 === 10) {
+    // 每 30 个周期（30分钟）刷新日线数据
+    if (refreshCycle % 30 === 5) {
       try {
         if (!isCacheValid(cache.dailyCandles, CACHE_TTL.daily)) {
           await getDailyCandles();
@@ -793,8 +858,8 @@ export function startCacheWarming() {
       } catch { /* silent */ }
     }
 
-    // 每 240 个周期（2小时）刷新周线数据
-    if (refreshCycle % 240 === 20) {
+    // 每 120 个周期（2小时）刷新周线数据
+    if (refreshCycle % 120 === 10) {
       try {
         if (!isCacheValid(cache.weeklyCandles, CACHE_TTL.weekly)) {
           await getWeeklyCandles();
@@ -802,13 +867,13 @@ export function startCacheWarming() {
       } catch { /* silent */ }
     }
 
-    // 日志：每 120 个周期（1小时）输出 API 使用量
-    if (refreshCycle % 120 === 0) {
-      console.log(`[MarketData] Daily API calls: ${dailyApiCalls}/800`);
+    // 日志：每 60 个周期（1小时）输出状态
+    if (refreshCycle % 60 === 0) {
+      console.log(`[MarketData] Status: API calls=${dailyApiCalls}/800, WS=${isWsConnected() ? 'connected' : 'disconnected'}, price=$${cache.quote?.data?.price ?? 'N/A'}`);
     }
-  }, 30 * 1000);
+  }, 60 * 1000); // 每 60 秒检查一次（不是 30 秒了，因为 WS 负责实时报价）
 
-  console.log("[MarketData] Background cache warming started (30s interval, Twelve Data)");
+  console.log("[MarketData] Cache warming started (WS for quotes, REST for K-lines)");
 }
 
 export function stopCacheWarming() {

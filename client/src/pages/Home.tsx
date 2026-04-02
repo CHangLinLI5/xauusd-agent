@@ -227,7 +227,7 @@ export default function Home() {
             <div className="flex items-center gap-1.5 mt-4 pt-3 border-t border-border/10">
               <Info className="w-3 h-3 text-muted-foreground/30" />
               <span className="text-[9px] text-muted-foreground/30">
-                现货价格来源: OTC Spot Market | 日内数据: COMEX GC Futures
+                数据来源: Twelve Data XAU/USD 现货 | 实时推送: WebSocket
               </span>
             </div>
           </div>
