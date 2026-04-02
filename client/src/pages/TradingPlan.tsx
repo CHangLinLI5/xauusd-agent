@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { getFullDateCN } from "@/lib/timeUtils";
+import { getFullDateCN, formatDateTimeCN } from "@/lib/timeUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,108 @@ import {
   Sparkles,
   FileText,
   ArrowRight,
+  Download,
+  Eye,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+
+/** 将 Markdown 文本导出为 PDF（前端生成） */
+async function exportPlanToPdf(content: string, planDate: string) {
+  // 动态加载 html2canvas + jspdf 或者用简单的打印方式
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    alert("请允许弹出窗口以导出PDF");
+    return;
+  }
+
+  // 将 Markdown 转为简单 HTML
+  const htmlContent = content
+    .replace(/^### (.*$)/gm, '<h3 style="color:#d4a853;margin:16px 0 8px;">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 style="color:#d4a853;margin:20px 0 10px;">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 style="color:#d4a853;margin:24px 0 12px;">$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#d4a853;">$1</strong>')
+    .replace(/\|(.*)\|/g, (match) => {
+      const cells = match.split("|").filter(Boolean).map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) return "";
+      const tag = match.includes("---") ? "th" : "td";
+      return "<tr>" + cells.map(c => `<${tag} style="padding:6px 12px;border:1px solid #333;text-align:left;">${c}</${tag}>`).join("") + "</tr>";
+    })
+    .replace(/(<tr>.*<\/tr>\n?)+/g, '<table style="border-collapse:collapse;width:100%;margin:12px 0;">$&</table>')
+    .replace(/^- (.*$)/gm, '<li style="margin:4px 0;">$1</li>')
+    .replace(/(<li.*<\/li>\n?)+/g, '<ul style="padding-left:20px;">$&</ul>')
+    .replace(/\n\n/g, "<br/><br/>")
+    .replace(/\n/g, "<br/>");
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>交易计划 - ${planDate}</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          max-width: 800px;
+          margin: 0 auto;
+          padding: 40px 30px;
+          color: #1a1a1a;
+          line-height: 1.8;
+          font-size: 14px;
+        }
+        .header {
+          text-align: center;
+          border-bottom: 2px solid #d4a853;
+          padding-bottom: 16px;
+          margin-bottom: 24px;
+        }
+        .header h1 {
+          color: #d4a853;
+          font-size: 22px;
+          margin: 0 0 4px;
+        }
+        .header .date {
+          color: #666;
+          font-size: 13px;
+        }
+        h1, h2, h3 { color: #333; }
+        strong { color: #b8860b; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        th, td { padding: 8px 12px; border: 1px solid #ddd; text-align: left; font-size: 13px; }
+        th { background: #f5f0e0; color: #333; font-weight: 600; }
+        .footer {
+          margin-top: 30px;
+          padding-top: 12px;
+          border-top: 1px solid #eee;
+          text-align: center;
+          color: #999;
+          font-size: 11px;
+        }
+        @media print {
+          body { padding: 20px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>GoldBias 交易计划</h1>
+        <div class="date">${planDate}</div>
+      </div>
+      ${htmlContent}
+      <div class="footer">
+        GoldBias AI · 生成于 ${new Date().toLocaleString("zh-CN")}
+      </div>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  setTimeout(() => {
+    printWindow.print();
+  }, 500);
+}
 
 export default function TradingPlan() {
   const { isAuthenticated } = useAuth();
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const isMobile = useIsMobile();
 
   const utils = trpc.useUtils();
@@ -34,11 +130,20 @@ export default function TradingPlan() {
     enabled: isAuthenticated && showHistory,
   });
 
+  const { data: selectedPlan, isLoading: loadingSelected } = trpc.plan.get.useQuery(
+    { id: selectedPlanId! },
+    { enabled: !!selectedPlanId }
+  );
+
   const generatePlan = trpc.plan.generate.useMutation({
     onSuccess: () => {
       utils.plan.today.invalidate();
     },
   });
+
+  const handleExportPdf = useCallback((content: string, planDate: string) => {
+    exportPlanToPdf(content, planDate);
+  }, []);
 
   const containerClass = isMobile
     ? "px-4 py-5 max-w-lg mx-auto space-y-4"
@@ -64,6 +169,75 @@ export default function TradingPlan() {
     );
   }
 
+  // ========== 历史计划详情页 ==========
+  if (selectedPlanId && selectedPlan) {
+    return (
+      <div className={containerClass}>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setSelectedPlanId(null)}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <div className="flex items-center gap-2 flex-1">
+            <Calendar className="w-5 h-5 text-gold" />
+            <h1 className="text-lg font-bold">{selectedPlan.planDate} 交易计划</h1>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs text-muted-foreground hover:text-gold"
+            onClick={() => handleExportPdf(selectedPlan.content, selectedPlan.planDate)}
+          >
+            <Download className="w-3.5 h-3.5" />
+            导出
+          </Button>
+        </div>
+
+        {(selectedPlan.marketType || selectedPlan.bias) && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedPlan.marketType && (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-gold/10 text-gold border border-gold/15">
+                {selectedPlan.marketType}
+              </span>
+            )}
+            {selectedPlan.bias && (
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg ${
+                selectedPlan.bias === "bullish" ? "bg-green/10 text-green border border-green/15" :
+                selectedPlan.bias === "bearish" ? "bg-red/10 text-red border border-red/15" :
+                "bg-gold/10 text-gold border border-gold/15"
+              }`}>
+                {selectedPlan.bias === "bullish" ? "偏多" : selectedPlan.bias === "bearish" ? "偏空" : "震荡"}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="card-base rounded-2xl p-4">
+          <div className="prose prose-invert prose-sm max-w-none text-[13px] leading-relaxed [&_h1]:text-gold [&_h2]:text-gold [&_h3]:text-gold/90 [&_strong]:text-gold/90 [&_code]:text-cyan [&_code]:bg-surface/50 [&_code]:px-1 [&_code]:rounded [&_li]:text-foreground/80 [&_p]:text-foreground/80">
+            <Streamdown>{selectedPlan.content}</Streamdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ========== 加载历史详情中 ==========
+  if (selectedPlanId && loadingSelected) {
+    return (
+      <div className={containerClass}>
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-gold mb-3" />
+          <span className="text-xs text-muted-foreground">加载计划中...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ========== 历史计划列表 ==========
   if (showHistory) {
     return (
       <div className={containerClass}>
@@ -80,25 +254,29 @@ export default function TradingPlan() {
           {planHistory?.map((plan) => (
             <div
               key={plan.id}
-              className="card-base rounded-xl p-4"
+              className="card-base rounded-xl p-4 cursor-pointer hover:border-gold/20 transition-all group"
+              onClick={() => setSelectedPlanId(plan.id)}
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-gold" />
                   <span className="text-sm font-semibold">{plan.planDate}</span>
                 </div>
-                {plan.bias && (
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-                    plan.bias === "bullish" ? "bg-green/10 text-green" :
-                    plan.bias === "bearish" ? "bg-red/10 text-red" :
-                    "bg-gold/10 text-gold"
-                  }`}>
-                    {plan.marketType ?? plan.bias}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {plan.bias && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                      plan.bias === "bullish" ? "bg-green/10 text-green" :
+                      plan.bias === "bearish" ? "bg-red/10 text-red" :
+                      "bg-gold/10 text-gold"
+                    }`}>
+                      {plan.marketType ?? (plan.bias === "bullish" ? "偏多" : plan.bias === "bearish" ? "偏空" : "震荡")}
+                    </span>
+                  )}
+                  <Eye className="w-3.5 h-3.5 text-white/20 group-hover:text-gold/60 transition-colors" />
+                </div>
               </div>
-              <div className="text-xs prose prose-invert prose-sm max-w-none text-foreground/70 [&_strong]:text-gold/80">
-                <Streamdown>{plan.content.slice(0, 200) + "..."}</Streamdown>
+              <div className="text-xs text-foreground/50 line-clamp-3">
+                {plan.content.replace(/[#*|]/g, "").slice(0, 150)}...
               </div>
             </div>
           ))}
@@ -113,6 +291,7 @@ export default function TradingPlan() {
     );
   }
 
+  // ========== 今日计划主页 ==========
   return (
     <div className={containerClass}>
       {/* Header */}
@@ -128,15 +307,28 @@ export default function TradingPlan() {
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-xs gap-1.5 text-muted-foreground hover:text-gold"
-          onClick={() => setShowHistory(true)}
-        >
-          <History className="w-3.5 h-3.5" />
-          历史
-        </Button>
+        <div className="flex items-center gap-2">
+          {todayPlan && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs gap-1.5 text-muted-foreground hover:text-gold"
+              onClick={() => handleExportPdf(todayPlan.content, todayPlan.planDate)}
+            >
+              <Download className="w-3.5 h-3.5" />
+              导出
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs gap-1.5 text-muted-foreground hover:text-gold"
+            onClick={() => setShowHistory(true)}
+          >
+            <History className="w-3.5 h-3.5" />
+            历史
+          </Button>
+        </div>
       </div>
 
       {/* Generate Button */}

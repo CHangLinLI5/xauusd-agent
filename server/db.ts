@@ -319,6 +319,21 @@ export async function getUserTradingPlans(userId: number) {
     .orderBy(desc(tradingPlans.createdAt));
 }
 
+export async function getTradingPlanById(id: number) {
+  const db = await getDb();
+  if (!db) {
+    // memoryStore fallback - find by id
+    const allPlans = memGetUserTradingPlans(0); // userId doesn't matter for mem lookup by id
+    return allPlans.find((p: any) => p.id === id) ?? undefined;
+  }
+  const result = await db
+    .select()
+    .from(tradingPlans)
+    .where(eq(tradingPlans.id, id))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
 // ========== System Config (with memory fallback) ==========
 
 export async function getConfig(key: string): Promise<string | undefined> {

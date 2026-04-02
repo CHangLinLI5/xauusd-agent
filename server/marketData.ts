@@ -516,60 +516,128 @@ async function getWeeklyData(): Promise<YahooChartResult | null> {
 }
 
 /**
- * 计算关键位 - 所有价格自动转换为现货价格
+ * 计算关键位 v2 - 基于交易体系
+ * 
+ * 体系逻辑：
+ * 1. 箱体 = 筹码密集区（价格反复测试的高低点聚集区域）
+ * 2. 支撑阻力 = 多周期高低点（D1级别的前高前低 + 日内级别的关键位）
+ * 3. 不使用 Pivot Point 公式，用实际价格行为
+ * 
+ * 数据源：
+ * - D1 K线（1个月）→ 找前高前低、筹码密集区
+ * - H4/15m K线（2天）→ 找日内关键位、今日箱体
+ * - W1 K线（6个月）→ 找大级别支撑阻力
  */
 export async function calculateKeyLevels(): Promise<KeyLevels> {
   const premium = await getFuturesPremium();
-  const [dailyData, intradayData] = await Promise.all([
+  const [dailyData, intradayData, weeklyData] = await Promise.all([
     getDailyData(),
     getIntradayData(),
+    getWeeklyData(),
   ]);
 
   if (dailyData) {
     const quotes = dailyData.indicators.quote[0];
-    const highs = quotes.high.filter((h): h is number => h !== null);
-    const lows = quotes.low.filter((l): l is number => l !== null);
-    const closes = quotes.close.filter((c): c is number => c !== null);
+    const highs = quotes.high.filter((h): h is number => h !== null).map(h => h - premium);
+    const lows = quotes.low.filter((l): l is number => l !== null).map(l => l - premium);
+    const closes = quotes.close.filter((c): c is number => c !== null).map(c => c - premium);
 
     if (highs.length >= 5 && lows.length >= 5) {
-      const spotHighs = highs.map(h => h - premium);
-      const spotLows = lows.map(l => l - premium);
-      const spotCloses = closes.map(c => c - premium);
+      // === 1. 找筹码密集区画箱体 ===
+      // 用最近5-10天的高低点，找价格反复测试的区域
+      const recentHighs = highs.slice(-10);
+      const recentLows = lows.slice(-10);
+      const allPrices = [...recentHighs, ...recentLows].sort((a, b) => a - b);
 
-      const boxTop = round2(Math.max(...spotHighs.slice(-5)));
-      const boxBottom = round2(Math.min(...spotLows.slice(-5)));
+      // 用价格聚类找密集区：将价格分桶，找最密集的区域
+      const bucketSize = 5; // $5 一个桶
+      const buckets: Map<number, number> = new Map();
+      for (const p of allPrices) {
+        const key = Math.round(p / bucketSize) * bucketSize;
+        buckets.set(key, (buckets.get(key) ?? 0) + 1);
+      }
 
-      const lastHigh = spotHighs[spotHighs.length - 1]!;
-      const lastLow = spotLows[spotLows.length - 1]!;
-      const lastClose = spotCloses[spotCloses.length - 1]!;
-      const pivot = (lastHigh + lastLow + lastClose) / 3;
+      // 找最密集的桶作为箱体中心
+      let maxCount = 0;
+      let densestPrice = allPrices[Math.floor(allPrices.length / 2)]!;
+      buckets.forEach((count, price) => {
+        if (count > maxCount) {
+          maxCount = count;
+          densestPrice = price;
+        }
+      });
 
-      const resistance1 = round2(2 * pivot - lastLow);
-      const resistance2 = round2(pivot + (lastHigh - lastLow));
-      const support1 = round2(2 * pivot - lastHigh);
-      const support2 = round2(pivot - (lastHigh - lastLow));
+      // 箱体 = 密集区上下各扩展一个桶
+      let boxTop = densestPrice + bucketSize;
+      let boxBottom = densestPrice - bucketSize;
 
+      // 用日内数据修正箱体（如果有的话）
       if (intradayData) {
         const intradayQuotes = intradayData.indicators.quote[0];
-        const intradayHighs = intradayQuotes.high.filter((h): h is number => h !== null);
-        const intradayLows = intradayQuotes.low.filter((l): l is number => l !== null && l > 1000);
+        const intradayHighs = intradayQuotes.high.filter((h): h is number => h !== null && h > 1000).map(h => h - premium);
+        const intradayLows = intradayQuotes.low.filter((l): l is number => l !== null && l > 1000).map(l => l - premium);
 
-        if (intradayHighs.length > 0 && intradayLows.length > 0) {
-          const todayHigh = Math.max(...intradayHighs.slice(-20)) - premium;
-          const todayLow = Math.min(...intradayLows.slice(-20)) - premium;
+        if (intradayHighs.length > 10 && intradayLows.length > 10) {
+          // 今日实际波动区间
+          const todayHigh = Math.max(...intradayHighs.slice(-30));
+          const todayLow = Math.min(...intradayLows.slice(-30));
 
-          return {
-            resistance1: Math.max(resistance1, round2(todayHigh + (todayHigh - todayLow) * 0.382)),
-            resistance2,
-            support1: Math.min(support1, round2(todayLow - (todayHigh - todayLow) * 0.382)),
-            support2,
-            boxTop: round2(todayHigh),
-            boxBottom: round2(todayLow),
-          };
+          // 如果今日区间在日线箱体内，用今日区间作为日内箱体
+          if (todayHigh <= boxTop + 15 && todayLow >= boxBottom - 15) {
+            boxTop = round2(todayHigh);
+            boxBottom = round2(todayLow);
+          }
         }
       }
 
-      return { resistance1, resistance2, support1, support2, boxTop, boxBottom };
+      // === 2. 找支撑阻力 = 前高前低（D1级别） ===
+      // R1 = 最近的前高（价格上方最近的高点）
+      // S1 = 最近的前低（价格下方最近的低点）
+      const currentPrice = closes[closes.length - 1]!;
+
+      // 找D1级别的摆动高低点（swing high/low）
+      const swingHighs: number[] = [];
+      const swingLows: number[] = [];
+      for (let i = 1; i < highs.length - 1; i++) {
+        if (highs[i]! > highs[i - 1]! && highs[i]! > highs[i + 1]!) {
+          swingHighs.push(highs[i]!);
+        }
+        if (lows[i]! < lows[i - 1]! && lows[i]! < lows[i + 1]!) {
+          swingLows.push(lows[i]!);
+        }
+      }
+
+      // R1 = 当前价格上方最近的摆动高点
+      const resistances = swingHighs.filter(h => h > currentPrice).sort((a, b) => a - b);
+      const supports = swingLows.filter(l => l < currentPrice).sort((a, b) => b - a);
+
+      let resistance1 = resistances[0] ?? round2(boxTop + 10);
+      let resistance2 = resistances[1] ?? round2(resistance1 + 15);
+      let support1 = supports[0] ?? round2(boxBottom - 10);
+      let support2 = supports[1] ?? round2(support1 - 15);
+
+      // === 3. 用周线数据补充大级别支撑阻力 ===
+      if (weeklyData) {
+        const wQuotes = weeklyData.indicators.quote[0];
+        const wHighs = wQuotes.high.filter((h): h is number => h !== null).map(h => h - premium);
+        const wLows = wQuotes.low.filter((l): l is number => l !== null).map(l => l - premium);
+
+        // 周线级别的前高前低，作为 R2/S2
+        const wSwingHighs = wHighs.filter(h => h > currentPrice).sort((a, b) => a - b);
+        const wSwingLows = wLows.filter(l => l < currentPrice).sort((a, b) => b - a);
+
+        if (wSwingHighs.length > 0) resistance2 = round2(wSwingHighs[0]!);
+        if (wSwingLows.length > 0) support2 = round2(wSwingLows[0]!);
+      }
+
+      return {
+        resistance1: round2(resistance1),
+        resistance2: round2(resistance2),
+        support1: round2(support1),
+        support2: round2(support2),
+        boxTop: round2(boxTop),
+        boxBottom: round2(boxBottom),
+      };
     }
   }
 
@@ -591,120 +659,241 @@ export async function calculateKeyLevels(): Promise<KeyLevels> {
 }
 
 function estimateKeyLevels(price: number): KeyLevels {
-  const dailyRange = price * 0.008;
-  const halfRange = dailyRange / 2;
+  // 即使是 fallback，也用合理的日内波幅估算
+  // 黄金日均波幅约 $25-40，取 $30 作为基准
+  const avgDailyRange = 30;
+  const halfRange = avgDailyRange / 2;
 
   return {
     resistance1: round2(price + halfRange),
-    resistance2: round2(price + dailyRange),
+    resistance2: round2(price + avgDailyRange),
     support1: round2(price - halfRange),
-    support2: round2(price - dailyRange),
-    boxTop: round2(price + halfRange * 0.6),
-    boxBottom: round2(price - halfRange * 0.6),
+    support2: round2(price - avgDailyRange),
+    boxTop: round2(price + halfRange * 0.5),
+    boxBottom: round2(price - halfRange * 0.5),
   };
 }
 
-// ========== Daily Bias ==========
+// ========== Daily Bias v2 ==========
 
+/**
+ * 日内偏向判断 v2 - 基于交易体系
+ * 
+ * 体系优先级：基本面 > 时间 > 多周期共振 > 关键位 > 图形确认
+ * 
+ * 1. 基本面：检查经济日历，数据前后降低置信度
+ * 2. 时间：亚盘定区间、欧盘起方向、美盘出主趋势
+ * 3. 多周期：W1→D1定大方向，H4→H1定日内
+ * 4. 关键位：价格在箱体中的位置、离支撑阻力的距离
+ */
 export async function getRealDailyBias(): Promise<DailyBiasData> {
   if (isCacheValid(cache.dailyBias, CACHE_TTL.dailyBias)) {
     return cache.dailyBias.data;
   }
 
-  const [quote, keyLevels, dailyData] = await Promise.all([
+  const [quote, keyLevels, dailyData, weeklyData] = await Promise.all([
     getRealQuote().catch(() => null),
     calculateKeyLevels(),
     getDailyData(),
+    getWeeklyData(),
   ]);
 
+  // 获取经济日历事件
+  let calendarEvents: Array<{ time: string; impact: string; name: string }> = [];
+  try {
+    const { getEconomicCalendar } = await import("./calendarService");
+    calendarEvents = getEconomicCalendar();
+  } catch { /* silent */ }
+
   const price = quote?.price ?? cache.quote?.data?.price ?? 0;
+  const premium = await getFuturesPremium();
 
   let bias: "bullish" | "bearish" | "ranging" = "ranging";
   let biasLabel = "震荡";
   let confidence: "high" | "medium" | "low" = "medium";
 
+  // === 多维度打分 ===
+  let bullishScore = 0;
+  let bearishScore = 0;
+  let hasData = false;
+
+  // --- 维度 1: 多周期趋势（权重最高） ---
   if (dailyData) {
-    const premium = await getFuturesPremium();
+    hasData = true;
     const closes = dailyData.indicators.quote[0].close
       .filter((c): c is number => c !== null)
       .map(c => c - premium);
 
     if (closes.length >= 5) {
-      const recent5 = closes.slice(-5);
-      const recent3 = closes.slice(-3);
+      // D1 趋势：5日方向
+      const d1Trend = closes[closes.length - 1]! - closes[closes.length - 5]!;
+      // D1 短期：3日方向
+      const d1Short = closes[closes.length - 1]! - closes[Math.max(0, closes.length - 3)]!;
 
-      const trend5 = recent5[recent5.length - 1]! - recent5[0]!;
-      const trend3 = recent3[recent3.length - 1]! - recent3[0]!;
-      const boxMid = (keyLevels.boxTop + keyLevels.boxBottom) / 2;
-      const priceVsBox = price - boxMid;
+      // D1 方向权重 3分
+      if (d1Trend > 5) bullishScore += 3;
+      else if (d1Trend < -5) bearishScore += 3;
+      else { bullishScore += 1; bearishScore += 1; } // 无明确方向
 
-      let bullishScore = 0;
-      let bearishScore = 0;
+      // D1 短期加速确认 1.5分
+      if (d1Short > 3 && d1Trend > 0) bullishScore += 1.5;
+      else if (d1Short < -3 && d1Trend < 0) bearishScore += 1.5;
+    }
+  }
 
-      if (trend5 > 0) bullishScore += 2; else bearishScore += 2;
-      if (trend3 > 0) bullishScore += 1.5; else bearishScore += 1.5;
-      if (quote && quote.change > 0) bullishScore += 1; else bearishScore += 1;
-      if (priceVsBox > 0) bullishScore += 1; else bearishScore += 1;
+  // W1 趋势（大方向）
+  if (weeklyData) {
+    const wCloses = weeklyData.indicators.quote[0].close
+      .filter((c): c is number => c !== null)
+      .map(c => c - premium);
 
-      const rangeSize = keyLevels.resistance1 - keyLevels.support1;
-      if (rangeSize > 0) {
-        const pricePosition = (price - keyLevels.support1) / rangeSize;
-        if (pricePosition > 0.8) bearishScore += 0.5;
-        if (pricePosition < 0.2) bullishScore += 0.5;
-      }
+    if (wCloses.length >= 3) {
+      const w1Trend = wCloses[wCloses.length - 1]! - wCloses[wCloses.length - 3]!;
+      // W1 方向权重 2分（大方向确认）
+      if (w1Trend > 10) bullishScore += 2;
+      else if (w1Trend < -10) bearishScore += 2;
+      else { bullishScore += 0.5; bearishScore += 0.5; }
+    }
+  }
 
-      const totalScore = bullishScore + bearishScore;
-      const bullishRatio = bullishScore / totalScore;
+  // --- 维度 2: 当日动能 ---
+  if (quote) {
+    hasData = true;
+    // 当日涨跌幅度 1.5分
+    if (quote.changePercent > 0.3) bullishScore += 1.5;
+    else if (quote.changePercent < -0.3) bearishScore += 1.5;
+    else if (quote.change > 0) bullishScore += 0.5;
+    else bearishScore += 0.5;
+  }
 
-      if (bullishRatio > 0.65) {
-        bias = "bullish";
-        biasLabel = "偏多";
-        confidence = bullishRatio > 0.8 ? "high" : "medium";
-      } else if (bullishRatio < 0.35) {
-        bias = "bearish";
-        biasLabel = "偏空";
-        confidence = bullishRatio < 0.2 ? "high" : "medium";
-      } else {
-        bias = "ranging";
-        biasLabel = "震荡";
-        confidence = "medium";
-      }
+  // --- 维度 3: 价格与箱体的关系 ---
+  const boxRange = keyLevels.boxTop - keyLevels.boxBottom;
+  if (boxRange > 0 && price > 0) {
+    const priceInBox = (price - keyLevels.boxBottom) / boxRange;
+
+    if (price > keyLevels.boxTop) {
+      // 突破箱体上沿，偏多信号
+      bullishScore += 2;
+    } else if (price < keyLevels.boxBottom) {
+      // 跌破箱体下沿，偏空信号
+      bearishScore += 2;
+    } else if (priceInBox > 0.8) {
+      // 箱体上沿，有压力
+      bearishScore += 0.5;
+    } else if (priceInBox < 0.2) {
+      // 箱体下沿，有支撑
+      bullishScore += 0.5;
+    }
+  }
+
+  // --- 维度 4: 离关键位的距离 ---
+  if (price > 0) {
+    const distToR1 = keyLevels.resistance1 - price;
+    const distToS1 = price - keyLevels.support1;
+
+    // 离阻力近（<10点），谨慎追多
+    if (distToR1 < 10 && distToR1 > 0) bearishScore += 0.5;
+    // 离支撑近（<10点），谨慎追空
+    if (distToS1 < 10 && distToS1 > 0) bullishScore += 0.5;
+  }
+
+  // === 计算偏向 ===
+  const totalScore = bullishScore + bearishScore;
+  if (totalScore > 0 && hasData) {
+    const bullishRatio = bullishScore / totalScore;
+
+    if (bullishRatio > 0.65) {
+      bias = "bullish";
+      biasLabel = "偏多";
+      confidence = bullishRatio > 0.78 ? "high" : "medium";
+    } else if (bullishRatio < 0.35) {
+      bias = "bearish";
+      biasLabel = "偏空";
+      confidence = bullishRatio < 0.22 ? "high" : "medium";
+    } else {
+      bias = "ranging";
+      biasLabel = "震荡";
+      confidence = "medium";
     }
   } else if (quote) {
-    if (quote.change > 0 && quote.changePercent > 0.2) {
+    // 没有K线数据，只能用当日涨跌，置信度低
+    if (quote.changePercent > 0.3) {
       bias = "bullish"; biasLabel = "偏多"; confidence = "low";
-    } else if (quote.change < 0 && quote.changePercent < -0.2) {
+    } else if (quote.changePercent < -0.3) {
       bias = "bearish"; biasLabel = "偏空"; confidence = "low";
     } else {
       bias = "ranging"; biasLabel = "震荡"; confidence = "low";
     }
   }
 
-  // Determine risk status based on time (UTC hours, displayed as Beijing time on frontend)
+  // === 基本面修正：数据前后降低置信度 ===
   const now = new Date();
+  const highImpactEvents = calendarEvents.filter(e => e.impact === "high");
+  const hasUpcomingData = highImpactEvents.some(e => {
+    const eventTime = new Date(e.time);
+    const diffMin = (eventTime.getTime() - now.getTime()) / 60000;
+    return diffMin >= -15 && diffMin <= 60; // 数据前60分钟到数据后15分钟
+  });
+
+  if (hasUpcomingData && confidence === "high") {
+    confidence = "medium"; // 数据前后不给高置信度
+  }
+
+  // === 风控状态：基于经济日历 + 盘面时段 ===
   const utcHour = now.getUTCHours();
   let riskStatus: "tradable" | "cautious" | "no_trade" = "tradable";
   let riskLabel = "可交易";
 
-  if (utcHour >= 12 && utcHour <= 14) {
+  // 检查是否接近高影响数据发布
+  const nearHighImpact = highImpactEvents.some(e => {
+    const eventTime = new Date(e.time);
+    const diffMin = (eventTime.getTime() - now.getTime()) / 60000;
+    return diffMin >= 0 && diffMin <= 30;
+  });
+
+  const justAfterHighImpact = highImpactEvents.some(e => {
+    const eventTime = new Date(e.time);
+    const diffMin = (now.getTime() - eventTime.getTime()) / 60000;
+    return diffMin >= 0 && diffMin <= 10;
+  });
+
+  if (nearHighImpact) {
+    riskStatus = "no_trade";
+    riskLabel = "数据前禁入";
+  } else if (justAfterHighImpact) {
     riskStatus = "cautious";
-    riskLabel = "数据时段·谨慎";
+    riskLabel = "数据后·观察方向";
+  } else if (utcHour >= 22 || utcHour < 0) {
+    riskStatus = "cautious";
+    riskLabel = "流动性低";
   }
 
+  // === 盘面时段 ===
   const sessions = {
     asia: utcHour >= 0 && utcHour < 8 ? "可交易" : "已收盘",
     europe: utcHour >= 7 && utcHour < 16 ? "可交易" : "已收盘",
     us: utcHour >= 13 && utcHour < 22 ? "可交易" : "已收盘",
   };
 
+  // === 生成摘要 ===
   const changeDir = quote && quote.change >= 0 ? "上涨" : "下跌";
   const changeAbs = quote ? Math.abs(quote.change).toFixed(2) : "0.00";
   const changePctAbs = quote ? Math.abs(quote.changePercent).toFixed(2) : "0.00";
-  const summary = `XAUUSD ${price.toFixed(2)}，日内${changeDir} ${changeAbs} (${changePctAbs}%)。` +
-    `箱体区间 ${keyLevels.boxBottom.toFixed(0)}-${keyLevels.boxTop.toFixed(0)}，` +
-    `${bias === "bullish" ? "关注上方阻力 " + keyLevels.resistance1.toFixed(0) + " 突破情况" :
-      bias === "bearish" ? "关注下方支撑 " + keyLevels.support1.toFixed(0) + " 支撑力度" :
-      "价格在箱体内震荡，等待方向选择"}`;
+
+  let positionDesc = "箱体内";
+  if (price > keyLevels.boxTop) positionDesc = "突破箱体上沿";
+  else if (price < keyLevels.boxBottom) positionDesc = "跌破箱体下沿";
+  else if (boxRange > 0) {
+    const pct = ((price - keyLevels.boxBottom) / boxRange * 100).toFixed(0);
+    positionDesc = `箱体内${pct}%位置`;
+  }
+
+  const summary = `XAUUSD ${price.toFixed(2)}，日内${changeDir}${changeAbs}(${changePctAbs}%)。` +
+    `${positionDesc}，箱体${keyLevels.boxBottom.toFixed(0)}-${keyLevels.boxTop.toFixed(0)}。` +
+    `${bias === "bullish" ? `偏多，上看${keyLevels.resistance1.toFixed(0)}` :
+      bias === "bearish" ? `偏空，下看${keyLevels.support1.toFixed(0)}` :
+      `震荡，等待方向`}。` +
+    (riskStatus !== "tradable" ? `风控: ${riskLabel}` : "");
 
   const result: DailyBiasData = {
     bias, biasLabel, confidence, keyLevels, riskStatus, riskLabel, summary, sessions,

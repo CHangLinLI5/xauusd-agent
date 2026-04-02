@@ -12,6 +12,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startCacheWarming } from "../marketData";
 import { initWebSocket, startRealtimePush } from "../wsServer";
+import { registerStreamRoutes } from "../streamChat";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -46,6 +47,8 @@ async function startServer() {
   registerDevAuthRoutes(app);
   // Email + password authentication
   registerEmailAuthRoutes(app);
+  // Stream chat SSE endpoint (before tRPC)
+  registerStreamRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

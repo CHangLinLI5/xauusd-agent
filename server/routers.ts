@@ -16,6 +16,7 @@ import {
   createTradingPlan,
   getTodayPlan,
   getUserTradingPlans,
+  getTradingPlanById,
   getConfig,
   setConfig,
   getAllConfigs,
@@ -32,7 +33,7 @@ import {
 import { getMockQuote, getMockDailyBias } from "./mockData";
 import { getRealQuote, getRealDailyBias } from "./marketData";
 import { buildMarketContext } from "./marketContext";
-import { storagePut, storagePutWithBase64, getLocalFileAsDataUrl } from "./storage";
+import { storagePut, storagePutWithBase64, getLocalFileAsDataUrl, storageGet } from "./storage";
 import { getGoldNews } from "./newsService";
 import { getEconomicCalendar } from "./calendarService";
 import { TRPCError } from "@trpc/server";
@@ -118,7 +119,20 @@ export const appRouter = router({
 
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(({ input }) => getChartAnalysisById(input.id)),
+      .query(async ({ input }) => {
+        const analysis = await getChartAnalysisById(input.id);
+        if (!analysis) return undefined;
+        // Refresh image URL if it might be expired (non-local URLs)
+        if (analysis.imageKey && !analysis.imageUrl.startsWith("/uploads/") && !analysis.imageUrl.startsWith("data:")) {
+          try {
+            const { url } = await storageGet(analysis.imageKey);
+            return { ...analysis, imageUrl: url };
+          } catch {
+            // Return original URL if refresh fails
+          }
+        }
+        return analysis;
+      }),
 
     upload: protectedProcedure
       .input(
@@ -198,6 +212,12 @@ export const appRouter = router({
     }),
 
     list: protectedProcedure.query(({ ctx }) => getUserTradingPlans(ctx.user.id)),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return getTradingPlanById(input.id);
+      }),
 
     generate: protectedProcedure.mutation(async ({ ctx }) => {
       const today = todayChinaDate();

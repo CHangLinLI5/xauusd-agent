@@ -159,6 +159,106 @@ export async function invokeCustomLLMWithImage(params: {
 }
 
 /**
+ * 流式调用自定义 LLM，返回 ReadableStream 的 async generator
+ * 用于 SSE 端点，逐 token 推送给前端
+ */
+export async function* invokeCustomLLMStream(params: {
+  messages: Message[];
+  maxTokens?: number;
+  temperature?: number;
+}): AsyncGenerator<string, void, unknown> {
+  if (hasCustomLlm()) {
+    const body: Record<string, unknown> = {
+      model: ENV.customLlmModel,
+      messages: params.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      max_tokens: params.maxTokens ?? 2048,
+      stream: true,
+    };
+
+    if (params.temperature !== undefined) {
+      body.temperature = params.temperature;
+    }
+
+    const apiUrl = getApiUrl();
+    console.log(`[CustomLLM] Stream calling ${apiUrl} with model ${ENV.customLlmModel}`);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ENV.customLlmApiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        console.error("[CustomLLM] Stream API error:", response.status, errorText);
+        // Fallback to non-stream
+        const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+        const content = extractContent(result);
+        yield content;
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") return;
+
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              yield delta;
+            }
+          } catch {
+            // skip malformed JSON
+          }
+        }
+      }
+      return;
+    } catch (err) {
+      clearTimeout(timeout);
+      console.error("[CustomLLM] Stream fetch error:", err);
+      // Fallback to non-stream
+      const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+      const content = extractContent(result);
+      yield content;
+      return;
+    }
+  }
+
+  // No custom LLM configured, use built-in (non-stream fallback)
+  const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+  const content = extractContent(result);
+  yield content;
+}
+
+/**
  * 提取 LLM 响应文本
  */
 export function extractContent(result: InvokeResult): string {
