@@ -1,6 +1,6 @@
 /**
  * 构建实时市场上下文，注入到AI聊天系统提示词中
- * 数据来源：YahooFinance GC=F (日内波动) + BullionVault (现货校准)
+ * 数据来源：Twelve Data XAU/USD 现货
  * v3: 使用动态经济日历替代 Mock，格式更紧凑
  */
 import { getRealQuote, getRealDailyBias } from "./marketData";

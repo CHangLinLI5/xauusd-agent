@@ -10,4 +10,5 @@ export const ENV = {
   customLlmApiUrl: process.env.CUSTOM_LLM_API_URL ?? "",
   customLlmApiKey: process.env.CUSTOM_LLM_API_KEY ?? "",
   customLlmModel: process.env.CUSTOM_LLM_MODEL ?? "gpt-5.4",
+  twelveDataApiKey: process.env.TWELVE_DATA_API_KEY ?? "",
 };
