@@ -15,6 +15,7 @@ import { getRealQuote, calculateKeyLevels, getRealDailyBias } from "./marketData
 import { getMockQuote, getMockDailyBias } from "./mockData";
 import { getGoldNews } from "./newsService";
 import { getEconomicCalendar } from "./calendarService";
+import { onPriceUpdate } from "./tdWebSocket";
 import type { MarketQuote } from "./mockData";
 
 // ========== Types ==========
@@ -129,14 +130,35 @@ export function startRealtimePush() {
   // Pre-fetch news in background (non-blocking)
   refreshNews();
 
-  // Main push loop - runs every 3 seconds
+  // Register callback for Twelve Data WebSocket price updates
+  // This pushes price to frontend immediately when received (1-3s), bypassing cache
+  onPriceUpdate((price, timestamp) => {
+    if (!io || connectedClients === 0) return;
+
+    const prevQuote = lastSnapshot?.quote;
+    const quote: MarketQuote = {
+      symbol: "XAUUSD",
+      price: Math.round(price * 100) / 100,
+      change: prevQuote ? Math.round((price - prevQuote.open) * 100) / 100 : 0,
+      changePercent: prevQuote && prevQuote.open > 0 ? Math.round(((price - prevQuote.open) / prevQuote.open) * 10000) / 100 : 0,
+      high: prevQuote?.high && prevQuote.high > price ? prevQuote.high : Math.round(price * 100) / 100,
+      low: prevQuote?.low && prevQuote.low < price && prevQuote.low > 1000 ? prevQuote.low : Math.round(price * 100) / 100,
+      open: prevQuote?.open && prevQuote.open > 1000 ? prevQuote.open : Math.round(price * 100) / 100,
+      timestamp: new Date(timestamp * 1000).toISOString(),
+    };
+
+    io.emit("market:quote", quote);
+    lastQuotePush = Date.now();
+  });
+
+  // Main push loop - only for full snapshots now (quote handled by WS callback above)
   pushInterval = setInterval(async () => {
     if (!io || connectedClients === 0) return;
 
     const now = Date.now();
 
-    // Push quote every 3s
-    if (now - lastQuotePush >= PUSH_INTERVALS.quote) {
+    // Fallback: push quote via REST if no WS update in 30s
+    if (now - lastQuotePush >= 30000) {
       try {
         const quote = await getQuoteSafe();
         io.emit("market:quote", quote);
@@ -157,12 +179,12 @@ export function startRealtimePush() {
         console.error("[WS] Snapshot push error:", (err as Error).message?.slice(0, 80));
       }
     }
-  }, 3000);
+  }, 5000); // Check every 5s instead of 3s since WS handles real-time quotes
 
   // Initial snapshot build
   buildSnapshot().then((s) => {
     lastSnapshot = s;
-    console.log(`[WS] Initial snapshot built ($${s.quote.price}), realtime push started (3s quote / 20s snapshot)`);
+    console.log(`[WS] Initial snapshot built ($${s.quote.price}), realtime push started (WS callback for quotes / 20s snapshot)`);
   }).catch(() => {
     console.warn("[WS] Initial snapshot build failed, will retry");
   });
