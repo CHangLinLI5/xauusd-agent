@@ -46,24 +46,24 @@ export default function News() {
   return (
     <div className={containerClass}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-red/15 to-red/5 flex items-center justify-center">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-red/15 to-red/5 flex items-center justify-center shrink-0">
             <Newspaper className="w-4 h-4 text-red" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold">新闻中心</h1>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold truncate">新闻中心</h1>
             <p className="text-[10px] text-muted-foreground">黄金相关财经资讯</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface/50 border border-border/20">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface/50 border border-border/20 shrink-0">
           <div className="status-dot status-dot-green" style={{ width: 4, height: 4 }} />
           <span className="text-[10px] text-muted-foreground">实时更新</span>
         </div>
       </div>
 
       {/* Category Filter */}
-      <div className="flex gap-2 overflow-x-auto pb-2 pt-1 scrollbar-none -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto pb-2 pt-2 scrollbar-none -mx-4 px-4">
         {CATEGORIES.map((cat) => (
           <button
             key={cat.key}

@@ -75,6 +75,27 @@ const MD_STYLES = `text-[14px] leading-[1.85] text-slate-200
   [&_p]:text-slate-200 [&_p]:leading-[1.85] [&_p]:my-1.5
 `;
 
+// ========== Thinking text filter ==========
+// Filter out English thinking/reasoning text that leaks from LLM
+const THINKING_PATTERNS = [
+  /^Crafting trading advice[.\s]*/i,
+  /^Analyzing the (market|data|chart|price)[.\s]*/i,
+  /^Let me (think|analyze|consider|review)[.\s]*/i,
+  /^Thinking about[.\s]*/i,
+  /^Processing[.\s]*/i,
+  /^Generating[.\s]*/i,
+  /^Formulating[.\s]*/i,
+  /^Preparing[.\s]*/i,
+];
+
+function filterThinkingText(text: string): string {
+  let filtered = text;
+  for (const pattern of THINKING_PATTERNS) {
+    filtered = filtered.replace(pattern, "");
+  }
+  return filtered;
+}
+
 // ========== Sub-components ==========
 
 function MarketContextBar({ compact = false }: { compact?: boolean }) {
@@ -298,10 +319,16 @@ export default function Chat() {
     }
   }, [sessions, activeSessionId]);
 
-  // Auto-scroll
+  // Auto-scroll to bottom
+  const scrollToBottom = useCallback(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+    scrollToBottom();
+  }, [messages, streamingContent, scrollToBottom]);
 
   // Slash panel toggle
   useEffect(() => {
@@ -312,7 +339,7 @@ export default function Chat() {
     }
   }, [input]);
 
-  // Streaming send
+  // Streaming send - FIXED: read 'token' field from SSE, filter thinking text
   const sendStreamMessage = useCallback(async (sessionId: number, content: string) => {
     setIsStreaming(true);
     setPendingUserMessage(content);
@@ -349,9 +376,16 @@ export default function Chat() {
             if (data === "[DONE]") continue;
             try {
               const parsed = JSON.parse(data);
-              if (parsed.content) {
-                fullContent += parsed.content;
-                setStreamingContent(fullContent);
+              // Backend sends { token } for streaming chunks, { done, content } for completion
+              if (parsed.token) {
+                fullContent += parsed.token;
+                // Filter out thinking/reasoning text that leaks from LLM
+                const filtered = filterThinkingText(fullContent);
+                setStreamingContent(filtered);
+              } else if (parsed.content) {
+                // Final complete message
+                fullContent = parsed.content;
+                setStreamingContent(filterThinkingText(fullContent));
               }
             } catch {}
           }
@@ -440,6 +474,9 @@ export default function Chat() {
       );
     }
 
+    // Filter thinking text from stored messages too
+    const filteredContent = filterThinkingText(msg.content);
+
     return (
       <div key={msg.id} className="py-3">
         <div className="flex items-start gap-3">
@@ -448,7 +485,7 @@ export default function Chat() {
           </div>
           <div className="flex-1 min-w-0 chat-content">
             <div className={MD_STYLES}>
-              <Streamdown>{msg.content}</Streamdown>
+              <Streamdown>{filteredContent}</Streamdown>
             </div>
           </div>
         </div>
@@ -489,7 +526,7 @@ export default function Chat() {
 
   // ========== Input area ==========
   const renderInputArea = () => (
-    <div className="px-3 lg:px-6 py-2.5 bg-[#14161b] border-t border-slate-700/30">
+    <div className="px-3 lg:px-6 py-2.5 bg-[#14161b] border-t border-slate-700/30 safe-area-bottom">
       <div className={`${isMobile ? "max-w-lg" : "max-w-3xl"} mx-auto`}>
         <div className="relative">
           {showSlashPanel && (
@@ -774,10 +811,12 @@ export default function Chat() {
   }
 
   // ========== Mobile: Chat view ==========
-  // Use fixed positioning for input area to keep it stable
+  // Chat fills the remaining space from AppLayout (header already rendered by AppLayout)
+  // AppLayout sets h-[100dvh] overflow-hidden for chat page, main is flex-1 overflow-hidden
+  // So this component just needs to be a flex column filling 100% of its parent
   return (
-    <div className="flex flex-col" style={{ height: "calc(100dvh - 7.5rem)" }}>
-      {/* Sticky header */}
+    <div className="flex flex-col h-full">
+      {/* Compact market bar + session title */}
       <div className="shrink-0">
         <MarketContextBar compact />
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-700/30 bg-[#14161b]">
@@ -808,12 +847,12 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Scrollable messages */}
+      {/* Scrollable messages - takes all remaining space */}
       <div className="flex-1 overflow-y-auto px-3 py-3" ref={chatScrollRef}>
         {renderMessages()}
       </div>
 
-      {/* Fixed input area */}
+      {/* Input area - fixed at bottom, shrink-0 */}
       <div className="shrink-0">
         {renderInputArea()}
       </div>

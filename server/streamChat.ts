@@ -109,11 +109,23 @@ export function registerStreamRoutes(app: Express) {
         res.write(`data: ${JSON.stringify({ token })}\n\n`);
       }
 
-      // Save complete assistant message
-      await addChatMessage(sessionId, "assistant", fullContent);
+      // Filter out thinking/reasoning text that may leak from LLM
+      const cleanedContent = fullContent
+        .replace(/^Crafting trading advice[.\s]*/i, "")
+        .replace(/^Analyzing the (market|data|chart|price)[.\s]*/i, "")
+        .replace(/^Let me (think|analyze|consider|review)[.\s]*/i, "")
+        .replace(/^Thinking about[.\s]*/i, "")
+        .replace(/^Processing[.\s]*/i, "")
+        .replace(/^Generating[.\s]*/i, "")
+        .replace(/^Formulating[.\s]*/i, "")
+        .replace(/^Preparing[.\s]*/i, "")
+        .trim();
 
-      // Send done event
-      res.write(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`);
+      // Save complete assistant message (cleaned)
+      await addChatMessage(sessionId, "assistant", cleanedContent);
+
+      // Send done event with cleaned content
+      res.write(`data: ${JSON.stringify({ done: true, content: cleanedContent })}\n\n`);
       res.end();
     } catch (error) {
       console.error("[StreamChat] Error:", error);
