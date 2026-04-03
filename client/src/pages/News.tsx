@@ -40,7 +40,7 @@ export default function News() {
   );
 
   const containerClass = isMobile
-    ? "px-4 py-5 max-w-lg mx-auto space-y-4"
+    ? "px-4 py-5 max-w-lg mx-auto space-y-5"
     : "px-6 py-6 max-w-5xl mx-auto space-y-5";
 
   return (
@@ -63,7 +63,7 @@ export default function News() {
       </div>
 
       {/* Category Filter */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto pb-2 pt-1 scrollbar-none -mx-4 px-4">
         {CATEGORIES.map((cat) => (
           <button
             key={cat.key}
