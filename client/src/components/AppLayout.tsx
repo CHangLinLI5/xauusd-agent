@@ -203,7 +203,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // ===== Mobile Layout =====
   return (
-    <div className={`bg-background text-foreground flex flex-col ${isChatPage ? "h-[100dvh] overflow-hidden" : "min-h-screen"}`}>
+    <div className={`bg-background text-foreground flex flex-col ${isChatPage ? "h-[100dvh]" : "min-h-screen"}`}>
       {/* Top Header - Mobile */}
       <header className="sticky top-0 z-50 bg-background/85 backdrop-blur-lg border-b border-border/20">
         <div className="flex items-center justify-between px-4 h-14">
@@ -284,7 +284,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main Content */}
-      <main className={`flex-1 ${isChatPage ? "overflow-hidden" : "overflow-y-auto pb-20"}`}>
+      <main className={`flex-1 ${isChatPage ? "overflow-hidden min-h-0" : "overflow-y-auto pb-20"}`}>
         {isChatPage ? children : (
           <div className="page-enter">
             {children}
@@ -293,7 +293,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Bottom Navigation - Mobile */}
-      {!isFullPage && !isChatPage && (
+      {!isFullPage && (
         <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-t border-border/15 safe-area-bottom">
           <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
             {navItems.map((item) => {

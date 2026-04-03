@@ -852,8 +852,8 @@ export default function Chat() {
         {renderMessages()}
       </div>
 
-      {/* Input area - fixed at bottom, shrink-0 */}
-      <div className="shrink-0">
+      {/* Input area - fixed at bottom, shrink-0, with bottom padding for nav bar */}
+      <div className="shrink-0 pb-16">
         {renderInputArea()}
       </div>
     </div>

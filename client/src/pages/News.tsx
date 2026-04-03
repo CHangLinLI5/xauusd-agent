@@ -63,20 +63,28 @@ export default function News() {
       </div>
 
       {/* Category Filter */}
-      <div className="flex gap-2 overflow-x-auto pb-2 pt-2 scrollbar-none -mx-4 px-4">
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat.key}
-            onClick={() => setSelectedCategory(cat.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-150 ${
-              selectedCategory === cat.key
-                ? "bg-gold/15 text-gold border border-gold/20"
-                : "bg-surface/50 text-muted-foreground hover:text-foreground border border-border/10 hover:border-border/30"
-            }`}
-          >
-            {cat.key}
-          </button>
-        ))}
+      <div className="relative -mx-4">
+        <div className="flex gap-3 overflow-x-auto pb-2 pt-2 scrollbar-none px-4">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.key}
+              onClick={() => setSelectedCategory(cat.key)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+                selectedCategory === cat.key
+                  ? "bg-gold/15 text-gold border border-gold/20"
+                  : "bg-surface/50 text-muted-foreground hover:text-foreground border border-border/10 hover:border-border/30"
+              }`}
+            >
+              {cat.key}
+            </button>
+          ))}
+          {/* Right spacer for scroll padding */}
+          <div className="shrink-0 w-4" aria-hidden />
+        </div>
+        {/* Fade hint on right edge */}
+        {isMobile && (
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent pointer-events-none" />
+        )}
       </div>
 
       {/* News List */}
