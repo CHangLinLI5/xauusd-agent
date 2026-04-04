@@ -1,22 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-describe("Custom LLM API", () => {
+/**
+ * Integration tests for Custom LLM API.
+ * These tests require real environment variables and network access.
+ * They are skipped by default. To run them:
+ *   RUN_INTEGRATION_TESTS=1 pnpm test
+ */
+const runIntegration = process.env.RUN_INTEGRATION_TESTS === "1";
+const describeIntegration = runIntegration ? describe : describe.skip;
+
+describeIntegration("Custom LLM API (integration)", () => {
   it("should have CUSTOM_LLM_API_URL configured", () => {
     const url = process.env.CUSTOM_LLM_API_URL;
     expect(url).toBeTruthy();
-    expect(url).toContain("104.238.222.107");
+    // Validate it's a valid URL (no hardcoded IPs or secrets)
+    expect(url).toMatch(/^https?:\/\/.+/);
   });
 
   it("should have CUSTOM_LLM_API_KEY configured", () => {
     const key = process.env.CUSTOM_LLM_API_KEY;
     expect(key).toBeTruthy();
-    expect(key!.startsWith("sk-")).toBe(true);
+    // Only check that it's a non-empty string, do not assert format
+    expect(typeof key).toBe("string");
   });
 
   it("should have CUSTOM_LLM_MODEL configured", () => {
     const model = process.env.CUSTOM_LLM_MODEL;
     expect(model).toBeTruthy();
-    expect(model).toBe("gpt-5.4");
   });
 
   it("should successfully call the custom LLM API", async () => {

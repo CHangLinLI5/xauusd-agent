@@ -66,11 +66,26 @@ const PUSH_INTERVALS = {
 // ========== Initialize ==========
 
 export function initWebSocket(httpServer: HttpServer) {
+  // CORS: use ALLOWED_ORIGINS env var (comma-separated) or restrict to same-origin
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   io = new Server(httpServer, {
     path: "/api/ws",
     cors: {
-      origin: "*",
+      origin: (origin, cb) => {
+        // Allow non-browser clients (no origin header)
+        if (!origin) return cb(null, true);
+        // If no whitelist configured, allow all (dev mode)
+        if (allowedOrigins.length === 0) return cb(null, true);
+        // Check whitelist
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        return cb(new Error(`Origin ${origin} not allowed by CORS`));
+      },
       methods: ["GET", "POST"],
+      credentials: true,
     },
     transports: ["websocket", "polling"],
     pingInterval: 25000,

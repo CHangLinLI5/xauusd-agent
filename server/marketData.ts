@@ -89,7 +89,14 @@ interface DailyBiasData {
 
 // ========== Config ==========
 
-const TWELVE_DATA_API_KEY = ENV.twelveDataApiKey || process.env.TWELVE_DATA_API_KEY || "f92ddfeaf4fb4a44bbc78eebd0f1801c";
+const TWELVE_DATA_API_KEY = ENV.twelveDataApiKey || process.env.TWELVE_DATA_API_KEY;
+
+if (!TWELVE_DATA_API_KEY && ENV.isProduction) {
+  console.error("[MarketData] TWELVE_DATA_API_KEY is required in production. Real market data will be unavailable.");
+}
+if (!TWELVE_DATA_API_KEY) {
+  console.warn("[MarketData] TWELVE_DATA_API_KEY is missing; falling back to mock data.");
+}
 const TWELVE_DATA_BASE = "https://api.twelvedata.com";
 const SYMBOL = "XAU/USD";
 

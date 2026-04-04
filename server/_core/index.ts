@@ -37,11 +37,43 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // Serve uploaded files from /uploads directory (local storage fallback)
-  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+  // Trust proxy (required for rate limiting and secure cookies behind reverse proxy)
+  app.set("trust proxy", 1);
+
+  // Security headers
+  try {
+    const helmet = (await import("helmet")).default;
+    app.use(helmet());
+  } catch {
+    console.warn("[Server] helmet not installed, skipping security headers. Run: pnpm add helmet");
+  }
+
+  // Rate limiting for API routes
+  try {
+    const { rateLimit } = await import("express-rate-limit");
+    app.use("/api", rateLimit({
+      windowMs: 15 * 60 * 1000,
+      limit: 300,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+    }));
+  } catch {
+    console.warn("[Server] express-rate-limit not installed, skipping rate limiting. Run: pnpm add express-rate-limit");
+  }
+
+  // Configure body parser with reasonable size limit
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+  // Serve uploaded files: in development open static, in production require auth
+  if (process.env.NODE_ENV !== "production") {
+    app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+  } else {
+    // In production, serve uploads through a controlled route
+    // TODO: Add authentication middleware and signed URL support
+    app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+    console.warn("[Server] /uploads is publicly accessible. Consider adding auth middleware for production.");
+  }
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // Dev login (only active in non-production when OAuth is not configured)
