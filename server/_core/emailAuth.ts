@@ -117,7 +117,7 @@ async function saveCredential(cred: UserCredential): Promise<void> {
       email: normalizeEmail(cred.email),
       passwordHash: cred.passwordHash,
       loginMethod: "email",
-      role: "admin",
+      role: "user",
       lastSignedIn: new Date(),
     });
   } catch (err) {

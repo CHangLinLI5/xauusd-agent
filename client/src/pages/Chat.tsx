@@ -394,12 +394,19 @@ export default function Chat() {
     } catch (error) {
       console.error("Stream error:", error);
       setStreamingContent("抱歉，请求出错了，请重试。");
+      // Keep error message visible briefly before clearing
+      await new Promise((r) => setTimeout(r, 2000));
     } finally {
       setIsStreaming(false);
       setPendingUserMessage(null);
+      // Only clear streaming content after refetch succeeds
+      try {
+        await refetchMessages();
+        await refetchSessions();
+      } catch {
+        // Ignore refetch errors
+      }
       setStreamingContent(null);
-      refetchMessages();
-      refetchSessions();
     }
   }, [refetchMessages, refetchSessions]);
 

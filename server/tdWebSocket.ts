@@ -42,8 +42,16 @@ type TDWsMessage = TDWsPrice | TDWsSubscribeStatus | TDWsHeartbeat;
 
 // ========== State ==========
 
-const API_KEY = ENV.twelveDataApiKey || process.env.TWELVE_DATA_API_KEY || "f92ddfeaf4fb4a44bbc78eebd0f1801c";
-const WS_URL = `wss://ws.twelvedata.com/v1/quotes/price?apikey=${API_KEY}`;
+const API_KEY = ENV.twelveDataApiKey || process.env.TWELVE_DATA_API_KEY;
+
+if (!API_KEY && ENV.isProduction) {
+  console.error("[TDWebSocket] TWELVE_DATA_API_KEY is required in production");
+}
+if (!API_KEY) {
+  console.warn("[TDWebSocket] TWELVE_DATA_API_KEY is missing; realtime price will be disabled.");
+}
+
+const WS_URL = API_KEY ? `wss://ws.twelvedata.com/v1/quotes/price?apikey=${API_KEY}` : "";
 const SYMBOL = "XAU/USD";
 
 let ws: WebSocket | null = null;
@@ -99,6 +107,10 @@ export function isWsConnected(): boolean {
  * 启动 WebSocket 连接
  */
 export function startTDWebSocket() {
+  if (!API_KEY) {
+    console.warn("[TDWebSocket] Skipping WebSocket connection: TWELVE_DATA_API_KEY not configured");
+    return;
+  }
   if (ws) {
     console.log("[TDWebSocket] Already connected or connecting");
     return;

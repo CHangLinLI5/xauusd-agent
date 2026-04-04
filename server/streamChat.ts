@@ -22,7 +22,14 @@ async function getAuthUser(req: Request): Promise<User | null> {
   try {
     return await sdk.authenticateRequest(req);
   } catch {
-    // Fallback: try session JWT directly
+    // In production, do not allow JWT-only fallback
+    const allowFallback =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_JWT_FALLBACK === "true";
+
+    if (!allowFallback) return null;
+
+    // Dev-only fallback: try session JWT directly (with limited 'user' role)
     try {
       const cookies = parseCookieHeader(req.headers.cookie || "");
       const sessionCookie = cookies[COOKIE_NAME];
@@ -35,7 +42,7 @@ async function getAuthUser(req: Request): Promise<User | null> {
             name: session.name || "Dev User",
             email: null,
             loginMethod: "dev",
-            role: "admin",
+            role: "user",
             passwordHash: null,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -76,6 +83,12 @@ export function registerStreamRoutes(app: Express) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    // Track client disconnect
+    let clientDisconnected = false;
+    req.on("close", () => {
+      clientDisconnected = true;
+    });
+
     try {
       // Save user message
       await addChatMessage(sessionId, "user", content);
@@ -104,6 +117,10 @@ export function registerStreamRoutes(app: Express) {
       });
 
       for await (const token of stream) {
+        if (clientDisconnected) {
+          console.log("[StreamChat] Client disconnected, stopping stream");
+          break;
+        }
         fullContent += token;
         // Send SSE event
         res.write(`data: ${JSON.stringify({ token })}\n\n`);

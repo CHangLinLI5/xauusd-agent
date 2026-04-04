@@ -155,8 +155,14 @@ class SDKServer {
   }
 
   private getSessionSecret() {
-    const secret = ENV.cookieSecret || "dev-secret-key-for-local-development";
-    return new TextEncoder().encode(secret);
+    const secret = ENV.cookieSecret;
+    if (!secret && ENV.isProduction) {
+      throw new Error(
+        "[FATAL] JWT_SECRET environment variable is required in production. " +
+        "Refusing to start with insecure default secret."
+      );
+    }
+    return new TextEncoder().encode(secret || "dev-secret-key-for-local-development");
   }
 
   /**
@@ -300,15 +306,15 @@ class SDKServer {
           });
           user = await db.getUserByOpenId(session.openId);
         } catch (dbError) {
-          console.warn("[Auth] DB upsert failed, using in-memory user");
-          // Return a synthetic user object if DB is also unavailable
+          console.warn("[Auth] DB upsert failed, using in-memory user with limited privileges");
+          // Return a synthetic user object with 'user' role (never 'admin') if DB is unavailable
           return {
             id: 1,
             openId: session.openId,
             name: session.name || "Dev User",
             email: null,
             loginMethod: "dev",
-            role: "admin",
+            role: "user",
             createdAt: new Date(),
             updatedAt: new Date(),
             lastSignedIn: signedInAt,
