@@ -83,6 +83,12 @@ export function registerStreamRoutes(app: Express) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    // Track client disconnect
+    let clientDisconnected = false;
+    req.on("close", () => {
+      clientDisconnected = true;
+    });
+
     try {
       // Save user message
       await addChatMessage(sessionId, "user", content);
@@ -111,6 +117,10 @@ export function registerStreamRoutes(app: Express) {
       });
 
       for await (const token of stream) {
+        if (clientDisconnected) {
+          console.log("[StreamChat] Client disconnected, stopping stream");
+          break;
+        }
         fullContent += token;
         // Send SSE event
         res.write(`data: ${JSON.stringify({ token })}\n\n`);

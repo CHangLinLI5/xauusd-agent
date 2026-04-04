@@ -332,6 +332,36 @@ export const appRouter = router({
       return getEconomicCalendar();
     }),
 
+    getSnapshot: publicProcedure.query(async () => {
+      let quote;
+      let bias;
+      try {
+        quote = await getRealQuote();
+      } catch {
+        quote = getMockQuote();
+      }
+      try {
+        bias = await getRealDailyBias();
+      } catch {
+        bias = getMockDailyBias();
+      }
+      const calendar = getEconomicCalendar();
+      let news;
+      try {
+        news = await getGoldNews();
+      } catch {
+        const { getMockNews } = await import("./mockData");
+        news = getMockNews();
+      }
+      return {
+        quote,
+        bias,
+        calendar,
+        news,
+        serverTime: nowChinaISO(),
+      };
+    }),
+
     dailyBias: publicProcedure.query(async () => {
       try {
         return await getRealDailyBias();
