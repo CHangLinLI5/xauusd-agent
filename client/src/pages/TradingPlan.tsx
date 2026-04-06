@@ -23,30 +23,41 @@ import { useState, useCallback } from "react";
 
 /** 将 Markdown 文本导出为 PDF（前端生成） */
 async function exportPlanToPdf(content: string, planDate: string) {
-  // 动态加载 html2canvas + jspdf 或者用简单的打印方式
   const printWindow = window.open("", "_blank");
   if (!printWindow) {
     alert("请允许弹出窗口以导出PDF");
     return;
   }
 
-  // 将 Markdown 转为简单 HTML
-  const htmlContent = content
-    .replace(/^### (.*$)/gm, '<h3 style="color:#d4a853;margin:16px 0 8px;">$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2 style="color:#d4a853;margin:20px 0 10px;">$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1 style="color:#d4a853;margin:24px 0 12px;">$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#d4a853;">$1</strong>')
-    .replace(/\|(.*)\|/g, (match) => {
+  // 预处理：清理 Markdown 中的分隔线
+  const cleaned = content.replace(/^---$/gm, "").trim();
+
+  // 将 Markdown 转为结构化 HTML
+  const htmlContent = cleaned
+    // 标题
+    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+    // 加粗
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    // 表格
+    .replace(/\|(.*?)\|/g, (match) => {
       const cells = match.split("|").filter(Boolean).map(c => c.trim());
       if (cells.every(c => /^[-:]+$/.test(c))) return "";
-      const tag = match.includes("---") ? "th" : "td";
-      return "<tr>" + cells.map(c => `<${tag} style="padding:6px 12px;border:1px solid #333;text-align:left;">${c}</${tag}>`).join("") + "</tr>";
+      return "<tr>" + cells.map(c => `<td>${c}</td>`).join("") + "</tr>";
     })
-    .replace(/(<tr>.*<\/tr>\n?)+/g, '<table style="border-collapse:collapse;width:100%;margin:12px 0;">$&</table>')
-    .replace(/^- (.*$)/gm, '<li style="margin:4px 0;">$1</li>')
-    .replace(/(<li.*<\/li>\n?)+/g, '<ul style="padding-left:20px;">$&</ul>')
-    .replace(/\n\n/g, "<br/><br/>")
+    .replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>')
+    // 有序列表
+    .replace(/^(\d+)\. (.*$)/gm, '<li class="ol">$2</li>')
+    .replace(/(<li class="ol">.*<\/li>\n?)+/g, '<ol>$&</ol>')
+    // 无序列表
+    .replace(/^- (.*$)/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    // 段落换行
+    .replace(/\n\n/g, "</p><p>")
     .replace(/\n/g, "<br/>");
+
+  const generatedTime = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
 
   printWindow.document.write(`
     <!DOCTYPE html>
@@ -54,56 +65,196 @@ async function exportPlanToPdf(content: string, planDate: string) {
     <head>
       <title>交易计划 - ${planDate}</title>
       <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          max-width: 800px;
-          margin: 0 auto;
-          padding: 40px 30px;
-          color: #1a1a1a;
-          line-height: 1.8;
-          font-size: 14px;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        @page {
+          size: A4;
+          margin: 20mm 18mm 25mm 18mm;
         }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+          max-width: 720px;
+          margin: 0 auto;
+          padding: 0;
+          color: #2c2c2c;
+          line-height: 1.75;
+          font-size: 13px;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        /* ===== Header ===== */
         .header {
           text-align: center;
-          border-bottom: 2px solid #d4a853;
-          padding-bottom: 16px;
-          margin-bottom: 24px;
+          padding-bottom: 14px;
+          margin-bottom: 20px;
+          border-bottom: 2px solid #c5a44e;
+        }
+        .header .brand {
+          font-size: 11px;
+          letter-spacing: 3px;
+          text-transform: uppercase;
+          color: #999;
+          margin-bottom: 4px;
         }
         .header h1 {
-          color: #d4a853;
-          font-size: 22px;
-          margin: 0 0 4px;
+          font-size: 20px;
+          font-weight: 700;
+          color: #1a1a1a;
+          margin: 2px 0;
         }
-        .header .date {
-          color: #666;
-          font-size: 13px;
+        .header h1 span {
+          color: #c5a44e;
         }
-        h1, h2, h3 { color: #333; }
-        strong { color: #b8860b; }
-        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-        th, td { padding: 8px 12px; border: 1px solid #ddd; text-align: left; font-size: 13px; }
-        th { background: #f5f0e0; color: #333; font-weight: 600; }
-        .footer {
-          margin-top: 30px;
-          padding-top: 12px;
-          border-top: 1px solid #eee;
-          text-align: center;
-          color: #999;
+        .header .meta {
+          font-size: 12px;
+          color: #888;
+          margin-top: 4px;
+        }
+        .header .meta .sep {
+          margin: 0 8px;
+          color: #ccc;
+        }
+
+        /* ===== Content ===== */
+        .content {
+          padding: 0;
+        }
+        .content h1 {
+          font-size: 17px;
+          font-weight: 700;
+          color: #1a1a1a;
+          margin: 22px 0 10px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid #e8e0cc;
+        }
+        .content h2 {
+          font-size: 15px;
+          font-weight: 700;
+          color: #333;
+          margin: 18px 0 8px;
+          padding-left: 10px;
+          border-left: 3px solid #c5a44e;
+        }
+        .content h3 {
+          font-size: 14px;
+          font-weight: 600;
+          color: #444;
+          margin: 14px 0 6px;
+        }
+        .content p {
+          margin: 6px 0;
+          color: #333;
+        }
+        .content strong {
+          color: #8b6914;
+          font-weight: 600;
+        }
+
+        /* ===== Tables ===== */
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 10px 0 14px;
+          font-size: 12px;
+        }
+        table tr:first-child td {
+          background: #f8f4ea;
+          font-weight: 600;
+          color: #5a4a1e;
           font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
         }
+        td {
+          padding: 7px 10px;
+          border: 1px solid #e5dfd0;
+          color: #444;
+          vertical-align: top;
+        }
+        tr:nth-child(even) td {
+          background: #fdfcf9;
+        }
+
+        /* ===== Lists ===== */
+        ul, ol {
+          padding-left: 18px;
+          margin: 6px 0 10px;
+        }
+        li {
+          margin: 3px 0;
+          color: #444;
+          line-height: 1.7;
+        }
+
+        /* ===== Footer ===== */
+        .footer {
+          margin-top: 28px;
+          padding-top: 12px;
+          border-top: 1px solid #e5dfd0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 10px;
+          color: #aaa;
+        }
+        .footer .left {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .footer .dot {
+          width: 3px;
+          height: 3px;
+          background: #ccc;
+          border-radius: 50%;
+          display: inline-block;
+        }
+
+        /* ===== Disclaimer ===== */
+        .disclaimer {
+          margin-top: 16px;
+          padding: 10px 14px;
+          background: #fafaf8;
+          border: 1px solid #f0ece0;
+          border-radius: 4px;
+          font-size: 9px;
+          color: #bbb;
+          line-height: 1.6;
+          text-align: center;
+        }
+
         @media print {
-          body { padding: 20px; }
+          body { padding: 0; }
+          .disclaimer { break-inside: avoid; }
         }
       </style>
     </head>
     <body>
       <div class="header">
-        <h1>GoldBias 交易计划</h1>
-        <div class="date">${planDate}</div>
+        <div class="brand">Traderynn · GoldBias</div>
+        <h1>XAUUSD <span>交易计划</span></h1>
+        <div class="meta">
+          ${planDate}
+          <span class="sep">|</span>
+          goldbias.cn
+        </div>
       </div>
-      ${htmlContent}
+
+      <div class="content">
+        <p>${htmlContent}</p>
+      </div>
+
       <div class="footer">
-        GoldBias AI · 生成于 ${new Date().toLocaleString("zh-CN")}
+        <div class="left">
+          <span>Traderynn</span>
+          <span class="dot"></span>
+          <span>goldbias.cn</span>
+        </div>
+        <div>${generatedTime}</div>
+      </div>
+
+      <div class="disclaimer">
+        免责声明：本交易计划仅供参考，不构成任何投资建议。交易有风险，入市需谨慎。作者及 GoldBias 不对因使用本计划产生的任何损失承担责任。
       </div>
     </body>
     </html>
