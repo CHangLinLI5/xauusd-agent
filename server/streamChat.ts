@@ -95,10 +95,18 @@ export function registerStreamRoutes(app: Express) {
       await addChatMessage(sessionId, "user", content);
       const history = await getSessionMessages(sessionId);
 
-      // Build enhanced system prompt
-      const marketContext = await buildMarketContext();
+      // Build enhanced system prompt with market data
+      let marketContext = await buildMarketContext();
+      console.log(`[StreamChat] marketContext length: ${marketContext.length}, empty: ${!marketContext.trim()}`);
+      
+      // If marketContext is empty (API failure), build a minimal fallback
+      if (!marketContext.trim()) {
+        console.warn("[StreamChat] marketContext is empty, using inline fallback");
+        marketContext = `\n\n---\n## 📊 实时市场数据\n\n**品种**: XAUUSD (现货黄金)\n**注意**: 实时数据暂时不可用，请基于你的交易体系和经验回答问题。所有分析默认针对 XAUUSD 现货黄金。\n---`;
+      }
+      
       const conversationCount = history.filter((m) => m.role === "user").length;
-      const timeContext = `\n\n---\n当前北京时间: ${nowChinaISO()}\n对话第${conversationCount}轮。${conversationCount >= 3 ? "聊了好几轮了，别重复前面说过的，直接回答问题。" : ""}`;
+      const timeContext = `\n\n---\n当前北京时间: ${nowChinaISO()}\n对话第${conversationCount}轮。${conversationCount >= 3 ? "聊了好几轮了，别重复前面说过的，直接回答问题。" : ""}\n\n重要：用户问的所有问题默认都是关于 XAUUSD 现货黄金的，不需要用户再指定品种。`;
       const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext + timeContext;
 
       // 可观测性日志：记录关键信息
