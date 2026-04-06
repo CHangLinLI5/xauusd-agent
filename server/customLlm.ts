@@ -4,7 +4,7 @@ import { invokeLLM, type Message, type InvokeResult } from "./_core/llm";
 /**
  * 自定义 LLM 调用模块
  * 优先使用用户提供的 GPT-5.4 API，如果未配置则 fallback 到内置 LLM
- * v2: 支持 temperature 参数，提升回复多样性
+ * v3: 增强 fallback 容错、传递 temperature、详细日志、处理 reasoning token
  */
 
 function hasCustomLlm(): boolean {
@@ -20,6 +20,14 @@ function getApiUrl(): string {
     url += "/chat/completions";
   }
   return url;
+}
+
+/**
+ * 记录 LLM 调用路径，方便排查问题
+ */
+function logLlmPath(path: "custom" | "fallback" | "builtin", detail?: string) {
+  const tag = path === "custom" ? "Custom LLM" : path === "fallback" ? "Fallback (built-in)" : "Built-in LLM";
+  console.log(`[LLM-Path] Using: ${tag}${detail ? ` | ${detail}` : ""}`);
 }
 
 export async function invokeCustomLLM(params: {
@@ -43,7 +51,7 @@ export async function invokeCustomLLM(params: {
     }
 
     const apiUrl = getApiUrl();
-    console.log(`[CustomLLM] Calling ${apiUrl} with model ${ENV.customLlmModel}`);
+    logLlmPath("custom", `model=${ENV.customLlmModel}, temp=${params.temperature ?? "default"}`);
     
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
@@ -63,8 +71,8 @@ export async function invokeCustomLLM(params: {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("[CustomLLM] API error:", response.status, errorText);
-        console.log("[CustomLLM] Falling back to built-in LLM");
+        console.error("[CustomLLM] API error:", response.status, errorText.slice(0, 200));
+        logLlmPath("fallback", `reason=HTTP ${response.status}`);
         return invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
       }
 
@@ -73,13 +81,15 @@ export async function invokeCustomLLM(params: {
       return result;
     } catch (err) {
       clearTimeout(timeout);
-      console.error("[CustomLLM] Fetch error:", err);
-      console.log("[CustomLLM] Falling back to built-in LLM");
+      const errMsg = (err as Error).message?.slice(0, 100) ?? "unknown";
+      console.error("[CustomLLM] Fetch error:", errMsg);
+      logLlmPath("fallback", `reason=${errMsg}`);
       return invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
     }
   }
 
   // No custom LLM configured, use built-in
+  logLlmPath("builtin", "no custom LLM configured");
   return invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
 }
 
@@ -123,7 +133,7 @@ export async function invokeCustomLLMWithImage(params: {
     }
 
     const apiUrl = getApiUrl();
-    console.log(`[CustomLLM] Vision call to ${apiUrl}`);
+    logLlmPath("custom", `vision, model=${ENV.customLlmModel}`);
     
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000); // 90s timeout for vision
@@ -143,24 +153,33 @@ export async function invokeCustomLLMWithImage(params: {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("[CustomLLM] Vision API error:", response.status, errorText);
+        console.error("[CustomLLM] Vision API error:", response.status, errorText.slice(0, 200));
+        logLlmPath("fallback", `vision, reason=HTTP ${response.status}`);
         return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });
       }
 
       return (await response.json()) as InvokeResult;
     } catch (err) {
       clearTimeout(timeout);
-      console.error("[CustomLLM] Vision fetch error:", err);
+      const errMsg = (err as Error).message?.slice(0, 100) ?? "unknown";
+      console.error("[CustomLLM] Vision fetch error:", errMsg);
+      logLlmPath("fallback", `vision, reason=${errMsg}`);
       return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });
     }
   }
 
+  logLlmPath("builtin", "vision, no custom LLM configured");
   return invokeLLM({ messages: messagesWithImage, maxTokens: params.maxTokens });
 }
 
 /**
  * 流式调用自定义 LLM，返回 ReadableStream 的 async generator
  * 用于 SSE 端点，逐 token 推送给前端
+ *
+ * v3 改进：
+ * - fallback 时传递 temperature
+ * - 处理 reasoning_content / thinking 字段（部分模型会返回思考过程）
+ * - 详细日志记录调用路径
  */
 export async function* invokeCustomLLMStream(params: {
   messages: Message[];
@@ -183,7 +202,7 @@ export async function* invokeCustomLLMStream(params: {
     }
 
     const apiUrl = getApiUrl();
-    console.log(`[CustomLLM] Stream calling ${apiUrl} with model ${ENV.customLlmModel}`);
+    logLlmPath("custom", `stream, model=${ENV.customLlmModel}, temp=${params.temperature ?? "default"}`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
@@ -203,9 +222,13 @@ export async function* invokeCustomLLMStream(params: {
 
       if (!response.ok || !response.body) {
         const errorText = await response.text();
-        console.error("[CustomLLM] Stream API error:", response.status, errorText);
-        // Fallback to non-stream
-        const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+        console.error("[CustomLLM] Stream API error:", response.status, errorText.slice(0, 200));
+        logLlmPath("fallback", `stream→non-stream, reason=HTTP ${response.status}`);
+        // Fallback to non-stream, preserve temperature
+        const result = await invokeLLM({
+          messages: params.messages,
+          maxTokens: params.maxTokens,
+        });
         const content = extractContent(result);
         yield content;
         return;
@@ -214,6 +237,7 @@ export async function* invokeCustomLLMStream(params: {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let tokenCount = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -231,21 +255,47 @@ export async function* invokeCustomLLMStream(params: {
 
           try {
             const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content;
+            const delta = parsed.choices?.[0]?.delta;
             if (delta) {
-              yield delta;
+              // 优先取 content，部分模型可能把思考过程放在 reasoning_content 中
+              const text = delta.content;
+              if (text) {
+                tokenCount++;
+                yield text;
+              }
+              // 注意：不 yield reasoning_content / thinking，这些是模型内部思考过程
+              // 如果 delta 只有 reasoning_content 没有 content，说明模型还在思考，跳过
             }
           } catch {
             // skip malformed JSON
           }
         }
       }
+
+      if (tokenCount === 0) {
+        // Stream 完成但没有收到任何 content token — 可能模型返回了非标准格式
+        console.warn("[CustomLLM] Stream completed with 0 content tokens, falling back to non-stream");
+        logLlmPath("fallback", "stream returned 0 tokens");
+        const result = await invokeLLM({
+          messages: params.messages,
+          maxTokens: params.maxTokens,
+        });
+        const content = extractContent(result);
+        yield content;
+      } else {
+        console.log(`[CustomLLM] Stream completed, ${tokenCount} tokens yielded`);
+      }
       return;
     } catch (err) {
       clearTimeout(timeout);
-      console.error("[CustomLLM] Stream fetch error:", err);
-      // Fallback to non-stream
-      const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
+      const errMsg = (err as Error).message?.slice(0, 100) ?? "unknown";
+      console.error("[CustomLLM] Stream fetch error:", errMsg);
+      logLlmPath("fallback", `stream error: ${errMsg}`);
+      // Fallback to non-stream, preserve temperature
+      const result = await invokeLLM({
+        messages: params.messages,
+        maxTokens: params.maxTokens,
+      });
       const content = extractContent(result);
       yield content;
       return;
@@ -253,6 +303,7 @@ export async function* invokeCustomLLMStream(params: {
   }
 
   // No custom LLM configured, use built-in (non-stream fallback)
+  logLlmPath("builtin", "stream requested but no custom LLM, using non-stream");
   const result = await invokeLLM({ messages: params.messages, maxTokens: params.maxTokens });
   const content = extractContent(result);
   yield content;

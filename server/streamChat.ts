@@ -1,6 +1,7 @@
 /**
  * 流式聊天 SSE 端点
  * 绕过 tRPC 直接用 Express 实现 Server-Sent Events
+ * v2: 增加 systemPrompt/marketContext 可观测性日志
  */
 
 import type { Express, Request, Response } from "express";
@@ -100,6 +101,19 @@ export function registerStreamRoutes(app: Express) {
       const timeContext = `\n\n---\n当前北京时间: ${nowChinaISO()}\n对话第${conversationCount}轮。${conversationCount >= 3 ? "聊了好几轮了，别重复前面说过的，直接回答问题。" : ""}`;
       const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext + timeContext;
 
+      // 可观测性日志：记录关键信息
+      const hasMarketData = marketContext.length > 50 && marketContext.includes("XAUUSD");
+      const hasPrice = /\d{4}\.\d{2}/.test(marketContext); // 检查是否包含类似 4657.66 的价格
+      console.log(
+        `[StreamChat] Session=${sessionId} | User="${content.slice(0, 50)}" | ` +
+        `SystemPrompt=${systemPrompt.length}chars | MarketContext=${marketContext.length}chars | ` +
+        `HasMarketData=${hasMarketData} | HasPrice=${hasPrice} | HistoryMsgs=${history.length}`
+      );
+
+      if (!hasMarketData) {
+        console.warn("[StreamChat] ⚠️ MarketContext appears empty or invalid! LLM may not have market data.");
+      }
+
       const messages: Message[] = [
         { role: "system", content: systemPrompt },
         ...history.map((m) => ({
@@ -140,6 +154,17 @@ export function registerStreamRoutes(app: Express) {
 
       // Save complete assistant message (cleaned)
       await addChatMessage(sessionId, "assistant", cleanedContent);
+
+      // 日志：记录回复质量
+      const replyHasPrice = /\d{4}/.test(cleanedContent);
+      const replyMentionsXAU = /黄金|XAUUSD|XAU|金价/.test(cleanedContent);
+      console.log(
+        `[StreamChat] Reply: ${cleanedContent.length}chars | ` +
+        `MentionsXAU=${replyMentionsXAU} | HasPrice=${replyHasPrice}`
+      );
+      if (!replyMentionsXAU && !replyHasPrice) {
+        console.warn("[StreamChat] ⚠️ Reply does not mention XAUUSD or any price — LLM may have ignored system prompt!");
+      }
 
       // Send done event with cleaned content
       res.write(`data: ${JSON.stringify({ done: true, content: cleanedContent })}\n\n`);

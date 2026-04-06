@@ -94,6 +94,16 @@ export const appRouter = router({
 
         const systemPrompt = XAUUSD_CHAT_SYSTEM_PROMPT + marketContext + timeContext;
 
+        // 可观测性日志
+        const hasMarketData = marketContext.length > 50 && marketContext.includes("XAUUSD");
+        console.log(
+          `[Chat.send] Session=${input.sessionId} | Prompt=${systemPrompt.length}chars | ` +
+          `MarketCtx=${marketContext.length}chars | HasData=${hasMarketData} | Msgs=${history.length}`
+        );
+        if (!hasMarketData) {
+          console.warn("[Chat.send] ⚠️ MarketContext empty/invalid!");
+        }
+
         const messages: Message[] = [
           { role: "system", content: systemPrompt },
           ...history.map((m) => ({
